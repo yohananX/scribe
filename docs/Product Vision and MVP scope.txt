@@ -1,0 +1,77 @@
+**Scribe – Product Vision & MVP Scope**  
+*(Draft v2)*
+
+### 1. Product Vision
+Scribe helps teachers turn handwritten examination papers into clean, professional, school-branded exam documents in minutes instead of hours.  
+
+A teacher simply photographs the handwritten pages with their phone. Scribe extracts the questions, sub-questions, options, marks and structure, lets the teacher make quick corrections in a simple review screen, and produces a perfectly formatted PDF that follows the official school template.  
+
+School administrators define the template once (logo, header, fonts, numbering style, etc.) with a live preview, and every exam produced by their teachers automatically follows it. Admins can also view all exams in an organised way (grouped by class) so they can easily track, download and print. Privacy is strict: teachers only see their own work, and organisations never see each other’s data.
+
+The goal is to make the entire process so easy that even non-tech-literate teachers can use it confidently, while giving school admins organised, ready-to-print exams.
+
+### 2. Target Users & Jobs-to-be-Done
+
+**Teachers**
+- Capture multi-page handwritten exams with a phone camera
+- Quickly review and correct the extracted content
+- Download a ready-to-print, school-formatted PDF
+
+**School Admins / Exam Officers**
+- Create and manage the official school exam template (with live preview)
+- View all exams produced by teachers in their organisation, organised by class for easy tracking
+- Download or print any exam PDF
+
+### 3. MVP Scope (what we will build first)
+
+**Teacher side**
+- Mobile-first web app (phone camera as primary input)
+- Multi-page photo upload (camera or gallery)
+- Automatic extraction of questions, sub-questions, options, marks and basic structure
+- Lightweight structured review screen:
+  - Edit text, marks, options
+  - Drag-and-drop reordering of questions
+  - Simple fixes for OCR mistakes
+- Live preview of the final exam
+- Generate and download school-templated PDF
+
+**Admin side**
+- Organisation account and teacher invitation
+- Template editor with live side-by-side preview (shows sample questions)
+  - Upload / resize / position logo
+  - School name (with show/hide toggle)
+  - Address and contact details
+  - Header and footer controls
+  - Fonts, margins, question numbering style
+  - Exam title block fields (subject, class, term, date, duration, total marks)
+- View all exams created by teachers in the organisation, **organised by class**
+- Download any exam PDF
+
+**Platform & non-functional**
+- Mobile-first responsive design
+- Strict privacy (teacher isolation + organisation isolation)
+- Online only (for MVP)
+
+### 4. Explicitly Out of Scope for MVP
+- Solo / independent teachers (no organisation)
+- Full rich-text editor
+- Offline mode
+- Advanced diagram recognition or redrawing
+- Multiple languages beyond the primary language we start with
+- Student-facing features or answer scripts
+- Printing directly from the app (download only)
+- Custom per-teacher templates inside an organisation
+
+### 5. Success Metrics for the First Version
+- A teacher can go from photos to downloadable PDF in under 10 minutes for a typical multi-page exam
+- Non-tech-literate teachers can complete the flow without training
+- School admins can set a complete template and see a realistic live preview
+- Admins can easily find and download exams grouped by class
+- Exams produced inside an organisation are consistent and print-ready
+- Teachers and admins both report significant time savings
+
+---
+
+This version includes the organised-by-class view for school admins.  
+
+Let me know if you want any further changes, or if we can move this into the Done column and start breaking the MVP into concrete Kanban tickets.
