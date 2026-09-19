@@ -56,7 +56,7 @@ export default async function DashboardPage() {
           <p className="mt-1 text-sm text-neutral-600">Capture handwritten pages and generate an exam.</p>
         </a>
         <a
-          href="/dashboard"
+          href="/exams"
           className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition-colors hover:border-primary-300"
         >
           <h2 className="text-lg font-semibold text-neutral-900">My Exams</h2>

@@ -63,3 +63,11 @@ export type Question = {
   page_number: number | null;
   created_at: string;
 };
+
+export type EditableQuestion = {
+  id: string;
+  text: string;
+  marks: number | null;
+  options: string[];
+  order: number;
+};

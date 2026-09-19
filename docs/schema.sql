@@ -197,3 +197,52 @@ create policy "Teachers manage own questions" on questions for all using (
 -- Public storage buckets for logos and exam pages can be created in Supabase Storage UI
 -- Recommended buckets: logos (private), exam-pages (private)
 -- Logos are served to the editor/print views via short-lived signed URLs.
+
+-- Storage buckets
+insert into storage.buckets (id, name, public)
+values ('logos', 'logos', false), ('exam-pages', 'exam-pages', false)
+on conflict (id) do nothing;
+
+-- Resolve the exam id from a storage path like "<examId>/<page>/<file>"
+create or replace function public.exam_id_from_storage_path(p_path text)
+returns uuid
+language sql
+stable
+as $$
+  select (storage.foldername(p_path))[1]::uuid;
+$$;
+
+-- Any teacher can upload pages to their own exam
+create policy "Teachers upload pages to their own exams"
+on storage.objects for insert with check (
+  bucket_id = 'exam-pages'
+  and exists (
+    select 1 from exams
+    where exams.id = public.exam_id_from_storage_path(name)
+      and exams.teacher_id = auth.uid()
+  )
+);
+
+-- Exam owners and admins can read exam pages; any member can read logos
+create policy "Users read exam pages and logos"
+on storage.objects for select using (
+  (
+    bucket_id = 'exam-pages'
+    and exists (
+      select 1 from exams
+      where exams.id = public.exam_id_from_storage_path(name)
+        and (
+          exams.teacher_id = auth.uid()
+          or exams.organisation_id in (
+            select organisation_id from profiles where id = auth.uid() and role = 'admin'
+          )
+        )
+    )
+  )
+  or (
+    bucket_id = 'logos'
+    and exists (
+      select 1 from profiles where id = auth.uid() and organisation_id is not null
+    )
+  )
+);

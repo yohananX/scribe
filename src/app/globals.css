@@ -81,3 +81,43 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+@media print {
+  @page {
+    margin: 0;
+  }
+
+  body {
+    background: white;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .exam-preview-surface {
+    gap: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  .exam-page {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    aspect-ratio: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    break-after: page;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .exam-page:last-of-type {
+    break-after: auto;
+  }
+}

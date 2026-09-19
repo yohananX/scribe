@@ -231,7 +231,7 @@ function PaginatedBody({
 export function ExamPreview({ config, exam }: ExamPreviewProps) {
   return (
     <div
-      className="flex flex-col gap-6 rounded-xl bg-[#f4f2ee] p-4 sm:p-6"
+      className="exam-preview-surface flex flex-col gap-6 rounded-xl bg-[#f4f2ee] p-4 sm:p-6"
       style={{ fontFamily: fontStack(config.typography.fontFamily) }}
     >
       <PaginatedBody config={config} exam={exam} />

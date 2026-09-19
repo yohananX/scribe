@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
+import { PageCapture } from "@/components/exams/PageCapture";
+import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function NewExamPage() {
   const supabase = await createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -11,12 +14,22 @@ export default async function NewExamPage() {
     redirect("/login");
   }
 
+  const profile = await getProfile(supabase, user.id);
+
+  if (!profile?.organisation_id) {
+    redirect("/onboarding");
+  }
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
-      <h1 className="text-2xl font-semibold text-neutral-900">New Exam</h1>
+      <h1 className="text-2xl font-semibold text-neutral-900">New exam</h1>
       <p className="mt-2 text-neutral-600">
-        Capture handwritten pages and generate an exam. Coming next.
+        Take photos of your handwritten exam pages and Scribe will turn them
+        into a clean, school-branded exam.
       </p>
+      <div className="mt-6">
+        <PageCapture />
+      </div>
     </div>
   );
 }
