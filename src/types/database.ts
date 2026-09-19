@@ -25,10 +25,12 @@ export type Invitation = {
   created_at: string;
 };
 
+import type { TemplateConfig } from "@/lib/template";
+
 export type Template = {
   id: string;
   organisation_id: string;
-  config: Record<string, unknown>;
+  config: TemplateConfig;
   created_at: string;
   updated_at: string;
 };

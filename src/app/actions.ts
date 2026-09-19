@@ -8,6 +8,7 @@ import { getFriendlyMessage } from "@/lib/errors";
 import { env } from "@/lib/env";
 import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
+import { templateConfigSchema, type TemplateConfig } from "@/lib/template";
 
 export type ActionState = {
   success?: boolean;
@@ -224,4 +225,36 @@ export async function removeTeacher(formData: FormData) {
   await supabase.from("profiles").update({ organisation_id: null }).eq("id", id);
 
   revalidatePath("/admin/teachers");
+}
+
+export type SaveTemplateResult = {
+  ok: boolean;
+  message: string;
+};
+
+export async function saveTemplate(input: unknown): Promise<SaveTemplateResult> {
+  const parsed = templateConfigSchema.safeParse(input);
+
+  if (!parsed.success) {
+    return { ok: false, message: "Template settings are not valid. Try again." };
+  }
+
+  const { supabase, profile } = await requireAdmin();
+  const config: TemplateConfig = parsed.data;
+
+  const { error } = await supabase.from("templates").upsert(
+    {
+      organisation_id: profile.organisation_id,
+      config: JSON.parse(JSON.stringify(config)),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "organisation_id" }
+  );
+
+  if (error) {
+    return { ok: false, message: getFriendlyMessage(error) };
+  }
+
+  revalidatePath("/admin/template");
+  return { ok: true, message: "Template saved. Your exam preview is up to date." };
 }

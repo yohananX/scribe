@@ -62,6 +62,9 @@ create table templates (
   updated_at timestamptz not null default now()
 );
 
+-- One template per organisation
+create unique index templates_org_unique on templates (organisation_id);
+
 -- Exams
 create table exams (
   id uuid primary key default uuid_generate_v4(),
@@ -193,3 +196,4 @@ create policy "Teachers manage own questions" on questions for all using (
 
 -- Public storage buckets for logos and exam pages can be created in Supabase Storage UI
 -- Recommended buckets: logos (private), exam-pages (private)
+-- Logos are served to the editor/print views via short-lived signed URLs.

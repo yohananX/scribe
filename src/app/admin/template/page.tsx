@@ -1,8 +1,12 @@
 import { redirect } from "next/navigation";
+import { TemplateEditor } from "@/components/template/TemplateEditor";
+import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeTemplateConfig, type TemplateConfig } from "@/lib/template";
 
 export default async function TemplatePage() {
   const supabase = await createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -11,22 +15,45 @@ export default async function TemplatePage() {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
-  if (profile?.role !== "admin") {
+  if (!profile?.organisation_id || profile.role !== "admin") {
     redirect("/dashboard");
   }
 
+  const { data: organisation } = await supabase
+    .from("organisations")
+    .select("name")
+    .eq("id", profile.organisation_id)
+    .single();
+
+  const { data: template } = await supabase
+    .from("templates")
+    .select("config")
+    .eq("organisation_id", profile.organisation_id)
+    .maybeSingle();
+
+  const config = normalizeTemplateConfig(template?.config);
+
+  if (!config.schoolName.name) {
+    config.schoolName = { ...config.schoolName, name: organisation?.name ?? "" };
+  }
+
+  if (config.logo?.path) {
+    const { data: signed } = await supabase.storage
+      .from("logos")
+      .createSignedUrl(config.logo.path, 60 * 60 * 24);
+
+    if (signed?.signedUrl) {
+      config.logo = { ...config.logo, url: signed.signedUrl };
+    }
+  }
+
+  const initialConfig: TemplateConfig = config;
+
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8">
-      <h1 className="text-2xl font-semibold text-neutral-900">Template Editor</h1>
-      <p className="mt-2 text-neutral-600">
-        Define the official school exam look and feel. Coming next.
-      </p>
+    <div className="mx-auto max-w-7xl px-4 py-6 lg:py-8">
+      <TemplateEditor initialConfig={initialConfig} orgId={profile.organisation_id} />
     </div>
   );
 }

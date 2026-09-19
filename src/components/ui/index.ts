@@ -4,3 +4,5 @@ export { Input } from "./Input";
 export { Badge } from "./Badge";
 export { EmptyState } from "./EmptyState";
 export { Alert } from "./Alert";
+export { Toggle } from "./Toggle";
+export { Select } from "./Select";
