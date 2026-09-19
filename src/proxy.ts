@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
+import { updateSession } from "@/lib/supabase/proxy";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -14,7 +14,8 @@ export async function middleware(request: NextRequest) {
   const isProtectedRoute =
     request.nextUrl.pathname.startsWith("/dashboard") ||
     request.nextUrl.pathname.startsWith("/admin") ||
-    request.nextUrl.pathname.startsWith("/exams");
+    request.nextUrl.pathname.startsWith("/exams") ||
+    request.nextUrl.pathname.startsWith("/onboarding");
 
   if (isProtectedRoute && !session) {
     return NextResponse.redirect(new URL("/login", request.url));

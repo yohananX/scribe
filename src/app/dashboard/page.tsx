@@ -17,6 +17,10 @@ export default async function DashboardPage() {
     .eq("id", user.id)
     .single();
 
+  if (!profile?.organisation_id) {
+    redirect("/onboarding");
+  }
+
   const isAdmin = profile?.role === "admin";
 
   return (

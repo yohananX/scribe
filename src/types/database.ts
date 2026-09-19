@@ -15,6 +15,16 @@ export type Profile = {
   created_at: string;
 };
 
+export type Invitation = {
+  id: string;
+  organisation_id: string;
+  email: string;
+  role: "teacher";
+  status: "pending" | "accepted" | "revoked";
+  created_by: string | null;
+  created_at: string;
+};
+
 export type Template = {
   id: string;
   organisation_id: string;

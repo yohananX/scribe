@@ -22,6 +22,10 @@ export function getFriendlyMessage(error: unknown): string {
     return "Network issue. Please check your connection and try again.";
   }
 
+  if (appError.message.includes("Invalid login credentials")) {
+    return "Incorrect email or password. Try again or reset your password.";
+  }
+
   if (appError.message.includes("upload")) {
     return "Upload failed. Please try again or use a different file.";
   }

@@ -12,6 +12,20 @@ create table organisations (
   updated_at timestamptz not null default now()
 );
 
+-- Invitations
+create table invitations (
+  id uuid primary key default uuid_generate_v4(),
+  organisation_id uuid not null references organisations(id) on delete cascade,
+  email text not null,
+  role text not null default 'teacher' check (role in ('teacher')),
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'revoked')),
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- Only one pending invitation per email per organisation
+create unique index invitations_org_email_pending on invitations (organisation_id, email) where status = 'pending';
+
 -- Profiles (extends auth.users)
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -21,6 +35,23 @@ create table profiles (
   role text not null default 'teacher' check (role in ('admin', 'teacher')),
   created_at timestamptz not null default now()
 );
+
+-- Automatically create a profile when a user signs up
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email)
+  values (new.id, new.email);
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
 
 -- Templates
 create table templates (
@@ -71,6 +102,12 @@ alter table templates enable row level security;
 alter table exams enable row level security;
 alter table exam_pages enable row level security;
 alter table questions enable row level security;
+alter table invitations enable row level security;
+
+-- Any signed-in user can create an organisation (they become the first admin)
+create policy "Users can create an organisation" on organisations for insert with check (
+  auth.uid() is not null
+);
 
 create policy "Users view their own org" on organisations for select using (
   id in (select organisation_id from profiles where id = auth.uid())
@@ -80,12 +117,32 @@ create policy "Admins update org" on organisations for update using (
   id in (select organisation_id from profiles where id = auth.uid() and role = 'admin')
 );
 
+-- Profiles: a user can create and update their own row
+create policy "Users create their own profile" on profiles for insert with check (
+  id = auth.uid()
+);
+
+create policy "Users update their own profile" on profiles for update using (
+  id = auth.uid()
+) with check (
+  id = auth.uid()
+);
+
 create policy "Users view profiles in org" on profiles for select using (
   organisation_id in (select organisation_id from profiles where id = auth.uid())
 );
 
 create policy "Admins manage profiles" on profiles for all using (
   organisation_id in (select organisation_id from profiles where id = auth.uid() and role = 'admin')
+);
+
+-- Invitations: org admins manage; the invited user can see only their own
+create policy "Admins manage invitations" on invitations for all using (
+  organisation_id in (select organisation_id from profiles where id = auth.uid() and role = 'admin')
+);
+
+create policy "Users view their own invitation" on invitations for select using (
+  email = (select email from auth.users where id = auth.uid())
 );
 
 create policy "Users view org template" on templates for select using (
