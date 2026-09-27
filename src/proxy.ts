@@ -4,7 +4,9 @@ import { updateSession } from "@/lib/supabase/proxy";
 export async function proxy(request: NextRequest) {
   const { response, userId } = await updateSession(request);
 
-  const isAuthPage = request.nextUrl.pathname === "/login";
+  const isAuthPage =
+    request.nextUrl.pathname === "/login" ||
+    request.nextUrl.pathname === "/signup";
   const isProtectedRoute =
     request.nextUrl.pathname.startsWith("/dashboard") ||
     request.nextUrl.pathname.startsWith("/admin") ||
@@ -12,7 +14,12 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/onboarding");
 
   if (isProtectedRoute && !userId) {
-    return redirectWithSession("/login", request, response);
+    const loginUrl = new URL("/login", request.url);
+    const attempted = request.nextUrl.pathname + request.nextUrl.search;
+    if (attempted !== "/dashboard" && attempted !== "/") {
+      loginUrl.searchParams.set("next", attempted);
+    }
+    return redirectWithSession(loginUrl.pathname + loginUrl.search, request, response);
   }
 
   if (isAuthPage && userId) {

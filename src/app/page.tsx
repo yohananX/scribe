@@ -12,16 +12,16 @@ export default function Home() {
         </p>
         <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
           <Link
-            href="/login"
+            href="/signup"
             className="flex h-12 w-full items-center justify-center rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] md:w-[158px]"
           >
             Get Started
           </Link>
           <Link
-            href="/docs/PROJECT_STRUCTURE.md"
+            href="/login"
             className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] md:w-[158px]"
           >
-            Documentation
+            Sign In
           </Link>
         </div>
       </main>

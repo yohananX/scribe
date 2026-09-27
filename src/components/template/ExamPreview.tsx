@@ -141,6 +141,8 @@ function QuestionBlock({
   );
 }
 
+const AUTO_QUESTIONS_PER_PAGE = 8;
+
 function PaginatedBody({
   config,
   exam,
@@ -148,13 +150,17 @@ function PaginatedBody({
   config: TemplateConfig;
   exam: PreviewExam;
 }) {
-  const pages: PreviewQuestion[][] = [];
-  let current: PreviewQuestion[] = [];
+  const pages: { question: PreviewQuestion; number: number }[][] = [];
+  let current: { question: PreviewQuestion; number: number }[] = [];
   const breaks = new Set(exam.pageBreaksAfter ?? []);
+  const hasManualBreaks = breaks.size > 0;
 
   exam.questions.forEach((question, index) => {
-    current.push(question);
-    if (breaks.has(index + 1)) {
+    const number = index + 1;
+    current.push({ question, number });
+    const autoBreak =
+      !hasManualBreaks && current.length >= AUTO_QUESTIONS_PER_PAGE;
+    if (breaks.has(number) || autoBreak) {
       pages.push(current);
       current = [];
     }
@@ -162,6 +168,14 @@ function PaginatedBody({
 
   if (current.length) {
     pages.push(current);
+  }
+
+  if (pages.length === 0) {
+    return (
+      <div className="exam-page relative mx-auto flex w-full max-w-[620px] flex-col rounded-md bg-white p-8 text-center text-neutral-500 shadow-md">
+        No questions yet. Go back to review and add questions.
+      </div>
+    );
   }
 
   return (
@@ -195,17 +209,14 @@ function PaginatedBody({
             <p className="mt-3 text-sm text-neutral-700">{exam.instructions}</p>
 
             <div>
-              {pageQuestions.map((question) => {
-                const number = exam.questions.indexOf(question) + 1;
-                return (
-                  <QuestionBlock
-                    key={number}
-                    question={question}
-                    number={number}
-                    style={config.numbering.style}
-                  />
-                );
-              })}
+              {pageQuestions.map(({ question, number }) => (
+                <QuestionBlock
+                  key={number}
+                  question={question}
+                  number={number}
+                  style={config.numbering.style}
+                />
+              ))}
             </div>
           </div>
 

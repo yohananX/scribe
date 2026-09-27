@@ -3,5 +3,9 @@
 import { Button } from "@/components/ui/Button";
 
 export function PrintButton() {
-  return <Button onClick={() => window.print()}>Print or save as PDF</Button>;
+  return (
+    <Button type="button" onClick={() => window.print()}>
+      Print or save as PDF
+    </Button>
+  );
 }

@@ -7,7 +7,16 @@ type LoginBody = {
   mode?: "magic" | "password";
   email?: string;
   password?: string;
+  next?: string;
 };
+
+function safeNext(value: unknown): string {
+  return typeof value === "string" &&
+    value.startsWith("/") &&
+    !value.startsWith("//")
+    ? value
+    : "/dashboard";
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,10 +53,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const next = safeNext(body.next);
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${new URL(request.url).origin}/auth/callback`,
+        emailRedirectTo: `${new URL(request.url).origin}/auth/callback?next=${encodeURIComponent(next)}`,
       },
     });
 

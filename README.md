@@ -1,36 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Scribe — handwritten exams to print-ready documents
 
-## Getting Started
+Teachers photograph handwritten exam pages. Scribe extracts the questions,
+lets teachers review/edit them, then renders a school-branded preview ready
+to print or save as PDF.
 
-First, run the development server:
+## MVP flow
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+`/signup` → `/onboarding` (create school) → `/exams/new` (photo capture) →
+`/exams/[id]/review` (edit + save) → `/exams/[id]/preview` (print).
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. `cp .env.example .env.local` and fill in Supabase keys.
+   Use `EXTRACTION_PROVIDER=mock` for offline demos,
+   `openrouter` + `OPENROUTER_API_KEY` for real extraction.
+2. Supabase SQL Editor: run the base schema, then
+   `supabase/migrations/20260927001_save_exam_atomic.sql`.
+3. Supabase Auth → URL Configuration: set Site URL, and whitelist
+   `http://localhost:3000/auth/callback` plus your prod
+   `https://your-domain/auth/callback`.
+4. `npm install`, `npm run dev`, open http://localhost:3000.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Checks
 
-## Learn More
+`npm run typecheck` must pass. `npm run lint` must have 0 errors
+(6 pre-existing `<img>` warnings in preview/capture are accepted).
 
-To learn more about Next.js, take a look at the following resources:
+## Limits (see `src/lib/exam-limits.ts`)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Max 10 pages and 30MB total per extraction run, 8MB per photo,
+JPG/PNG only (HEIC rejected with a friendly message).

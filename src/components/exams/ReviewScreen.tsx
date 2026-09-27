@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState, useTransition, type DragEvent } from "react";
-import { saveExam, type ExamActionResult } from "@/app/exams/actions";
+import { useRouter } from "next/navigation";
+import { finalizeExam, saveExam, type ExamActionResult } from "@/app/exams/actions";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -46,15 +47,21 @@ export function ReviewScreen({
     markDirty();
   }
 
-  function moveQuestion(index: number, direction: -1 | 1) {
+  function moveQuestionTo(from: number, to: number) {
     setQuestions((prev) => {
+      if (from < 0 || from >= prev.length || to < 0 || to >= prev.length)
+        return prev;
+      if (from === to) return prev;
       const next = [...prev];
-      const target = index + direction;
-      if (target < 0 || target >= next.length) return prev;
-      [next[index], next[target]] = [next[target], next[index]];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
       return next;
     });
     markDirty();
+  }
+
+  function moveQuestion(index: number, direction: -1 | 1) {
+    moveQuestionTo(index, index + direction);
   }
 
   function removeQuestion(id: string) {
@@ -81,14 +88,40 @@ export function ReviewScreen({
     const from = dragIndex.current;
     dragIndex.current = null;
     if (from === null || from === targetIndex) return;
-    moveQuestion(from, targetIndex > from ? 1 : -1);
+    moveQuestionTo(from, targetIndex);
+  }
+
+  const router = useRouter();
+
+  function orderedPayload() {
+    return {
+      questions: questions.map((q, index) => ({ ...q, order: index + 1 })),
+      titleBlock,
+    };
   }
 
   function handleSave() {
     startTransition(async () => {
-      const result = await saveExam(examId, { questions, titleBlock });
+      const result = await saveExam(examId, orderedPayload());
       setSaveState(result);
       if (result.ok) setDirty(false);
+    });
+  }
+
+  function handleContinue() {
+    startTransition(async () => {
+      if (dirty) {
+        const result = await saveExam(examId, orderedPayload());
+        setSaveState(result);
+        if (!result.ok) return;
+        setDirty(false);
+      }
+      const fin = await finalizeExam(examId);
+      if (!fin.ok) {
+        setSaveState(fin);
+        return;
+      }
+      router.push(`/exams/${examId}/preview`);
     });
   }
 
@@ -235,11 +268,23 @@ export function ReviewScreen({
       </section>
 
       <div className="mt-8">
-        <a href={`/exams/${examId}/preview`}>
-          <Button size="lg" className="w-full">
-            Continue to preview
-          </Button>
-        </a>
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={handleContinue}
+          disabled={pending || questions.length === 0}
+        >
+          {pending
+            ? "Saving..."
+            : dirty
+              ? "Save and continue to preview"
+              : "Continue to preview"}
+        </Button>
+        {dirty && (
+          <p className="mt-2 text-center text-sm text-neutral-500">
+            Unsaved changes will be saved before continuing.
+          </p>
+        )}
       </div>
     </div>
   );

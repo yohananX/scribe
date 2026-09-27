@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getFriendlyMessage } from "@/lib/errors";
+import { EXAM_LIMITS, formatMb } from "@/lib/exam-limits";
 import { getExtractionProvider } from "@/lib/extraction";
 import { getProfile } from "@/lib/profile";
 import { getExamPageSignedUrl, uploadExamPage } from "@/lib/storage";
@@ -19,7 +20,7 @@ const editableQuestionSchema = z.object({
   text: z.string().min(1, "Question text cannot be empty.").max(4000),
   marks: z.number().int().min(0).max(200).nullable(),
   options: z.array(z.string().max(200)).max(8),
-  order: z.number().int().min(1),
+  order: z.number().int().min(1).optional(),
 });
 
 const saveExamSchema = z.object({
@@ -78,16 +79,40 @@ export async function createExamFromPages(
     return { ok: false, message: "Add at least one page before processing." };
   }
 
+  if (files.length > EXAM_LIMITS.maxPages) {
+    return {
+      ok: false,
+      message: `Too many pages at once (max ${EXAM_LIMITS.maxPages}). Split into smaller batches for reliable reading.`,
+    };
+  }
+
+  let totalBytes = 0;
   for (const file of files) {
-    if (!file.type.startsWith("image/")) {
+    const type = (file.type || "").toLowerCase();
+    if (!type.startsWith("image/")) {
       return { ok: false, message: "One of the files you added is not an image." };
     }
-    if (file.size > 8 * 1024 * 1024) {
+    if (type === "image/heic" || type === "image/heif") {
       return {
         ok: false,
-        message: "One of the images is larger than 8 MB. Please use a smaller image.",
+        message:
+          "One photo is in HEIC format (iPhone). Re-save it as JPG/PNG, or retake without HDR, then try again.",
       };
     }
+    if (file.size > EXAM_LIMITS.maxFileBytes) {
+      return {
+        ok: false,
+        message: `One image is larger than ${formatMb(EXAM_LIMITS.maxFileBytes)}. Use a smaller photo or screenshot.`,
+      };
+    }
+    totalBytes += file.size;
+  }
+
+  if (totalBytes > EXAM_LIMITS.maxTotalBytes) {
+    return {
+      ok: false,
+      message: `Those pages total ${formatMb(totalBytes)} (max ${formatMb(EXAM_LIMITS.maxTotalBytes)}). Process fewer pages at once.`,
+    };
   }
 
   let examId: string | null = null;
@@ -121,7 +146,10 @@ export async function createExamFromPages(
         page_number: index + 1,
         storage_path: path,
       });
-      const signedUrl = await getExamPageSignedUrl(path, 300);
+      const signedUrl = await getExamPageSignedUrl(
+        path,
+        EXAM_LIMITS.signedUrlExpirySeconds
+      );
       imageUris.push(signedUrl);
     }
 
@@ -135,6 +163,12 @@ export async function createExamFromPages(
 
     const provider = getExtractionProvider();
     const result = await provider.extract(imageUris);
+
+    if (!result.questions || result.questions.length === 0) {
+      throw new Error(
+        "No questions were found on those pages. Try sharper photos with good lighting."
+      );
+    }
 
     const { error: insertError } = await supabase.from("questions").insert(
       result.questions.map((question) => ({
@@ -181,36 +215,124 @@ export async function saveExam(
 
   const { supabase, exam } = await requireExamOwner(examId);
 
-  const { error: deleteError } = await supabase
-    .from("questions")
-    .delete()
-    .eq("exam_id", examId);
+  // Server is the source of truth for order: display position wins.
+  const normalized = parsed.data.questions.map((question, index) => ({
+    ...question,
+    text: question.text.trim(),
+    options: question.options.map((o) => o.trim()).filter((o) => o.length > 0),
+    order: index + 1,
+  }));
 
-  if (deleteError) {
-    return { ok: false, message: getFriendlyMessage(deleteError) };
+  for (const q of normalized) {
+    if (!q.text) {
+      return {
+        ok: false,
+        message: "Question text cannot be empty. Fill every question or delete it.",
+      };
+    }
   }
 
-  const { error: insertError } = await supabase.from("questions").insert(
-    parsed.data.questions.map((question) => ({
-      exam_id: examId,
-      text: question.text,
-      marks: question.marks,
-      options: question.options,
-      order: question.order,
-    }))
+  // 1) Try atomic RPC (requires supabase/migrations/20260927001 applied).
+  const rpcPayload = {
+    p_exam_id: exam.id,
+    p_title_block: parsed.data.titleBlock,
+    p_questions: normalized.map((q) => ({
+      text: q.text,
+      marks: q.marks,
+      options: q.options,
+    })),
+  };
+
+  const { error: rpcError } = await supabase.rpc(
+    "save_exam_with_questions",
+    rpcPayload
   );
 
-  if (insertError) {
-    return { ok: false, message: getFriendlyMessage(insertError) };
+  if (!rpcError) {
+    revalidatePath(`/exams/${examId}/review`);
+    revalidatePath(`/exams/${examId}/preview`);
+    revalidatePath("/exams");
+    return { ok: true, message: "Changes saved." };
+  }
+
+  // Missing function -> fall back to safe differential save.
+  // Any other RPC error is a real validation/auth failure.
+  const isMissingFn =
+    rpcError.code === "42883" ||
+    rpcError.message?.includes("save_exam_with_questions") ||
+    rpcError.message?.includes("function") ||
+    rpcError.message?.includes("not found");
+
+  if (!isMissingFn) {
+    return { ok: false, message: getFriendlyMessage(rpcError) };
+  }
+
+  return differentialSave(supabase, exam.id, normalized, parsed.data.titleBlock);
+}
+
+async function differentialSave(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  examId: string,
+  questions: { id: string; text: string; marks: number | null; options: string[]; order: number }[],
+  titleBlock: Record<string, string>
+): Promise<ExamActionResult> {
+  // Insert new rows first so a failure leaves existing data intact.
+  const { data: existing } = await supabase
+    .from("questions")
+    .select("id")
+    .eq("exam_id", examId);
+
+  const existingIds = new Set((existing ?? []).map((r) => r.id as string));
+  const incomingIds = new Set(
+    questions.filter((q) => !q.id.startsWith("local-")).map((q) => q.id)
+  );
+
+  const toInsert = questions.filter(
+    (q) => q.id.startsWith("local-") || !existingIds.has(q.id)
+  );
+  const toUpdate = questions.filter(
+    (q) => !q.id.startsWith("local-") && existingIds.has(q.id)
+  );
+  const toDelete = [...existingIds].filter((id) => !incomingIds.has(id));
+
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from("questions").insert(
+      toInsert.map((q) => ({
+        exam_id: examId,
+        text: q.text,
+        marks: q.marks,
+        options: q.options,
+        order: q.order,
+      }))
+    );
+    if (error) return { ok: false, message: getFriendlyMessage(error) };
+  }
+
+  for (const q of toUpdate) {
+    const { error } = await supabase
+      .from("questions")
+      .update({ text: q.text, marks: q.marks, options: q.options, order: q.order })
+      .eq("id", q.id)
+      .eq("exam_id", examId);
+    if (error) return { ok: false, message: getFriendlyMessage(error) };
+  }
+
+  if (toDelete.length > 0) {
+    const { error } = await supabase
+      .from("questions")
+      .delete()
+      .eq("exam_id", examId)
+      .in("id", toDelete);
+    if (error) return { ok: false, message: getFriendlyMessage(error) };
   }
 
   const { error: updateError } = await supabase
     .from("exams")
     .update({
-      title_block: parsed.data.titleBlock,
+      title_block: titleBlock,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", exam.id);
+    .eq("id", examId);
 
   if (updateError) {
     return { ok: false, message: getFriendlyMessage(updateError) };
@@ -221,4 +343,22 @@ export async function saveExam(
   revalidatePath("/exams");
 
   return { ok: true, message: "Changes saved." };
+}
+
+export async function finalizeExam(examId: string): Promise<ExamActionResult> {
+  const { supabase, exam } = await requireExamOwner(examId);
+
+  const { error } = await supabase
+    .from("exams")
+    .update({ status: "finalized", updated_at: new Date().toISOString() })
+    .eq("id", exam.id)
+    .eq("status", "draft");
+
+  if (error) {
+    return { ok: false, message: getFriendlyMessage(error) };
+  }
+
+  revalidatePath(`/exams/${examId}/preview`);
+  revalidatePath("/exams");
+  return { ok: true, message: "Exam finalized." };
 }

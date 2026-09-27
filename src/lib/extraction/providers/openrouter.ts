@@ -3,7 +3,11 @@ import { env } from "@/lib/env";
 import type { ExtractedQuestion, ExtractionResult, ExtractionService } from "../interface";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const REQUEST_TIMEOUT_MS = 90_000;
+// Keep under typical serverless action limits (60s). The action also uploads
+// first, so the model call itself must finish well before that.
+const REQUEST_TIMEOUT_MS = 55_000;
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [4000, 8000];
 
 const extractedQuestionSchema = z.object({
   text: z.string().trim().min(1).max(4000),
@@ -35,11 +39,23 @@ function extractJsonPayload(text: string): unknown {
   const start = candidate.indexOf("{");
   const arrayStart = candidate.indexOf("[");
 
-  if (start === -1 || (arrayStart !== -1 && arrayStart < start)) {
+  if (arrayStart !== -1 && (start === -1 || arrayStart < start)) {
+    const arrayEnd = candidate.lastIndexOf("]");
+    if (arrayEnd > arrayStart) {
+      return JSON.parse(candidate.slice(arrayStart, arrayEnd + 1));
+    }
     return JSON.parse(candidate.slice(arrayStart));
   }
 
-  return JSON.parse(candidate.slice(start, candidate.lastIndexOf("}") + 1));
+  if (start !== -1) {
+    const end = candidate.lastIndexOf("}");
+    if (end > start) {
+      return JSON.parse(candidate.slice(start, end + 1));
+    }
+  }
+
+  // Last resort: let it throw with a clear path to the friendly message.
+  return JSON.parse(candidate);
 }
 
 export class OpenRouterExtractionProvider implements ExtractionService {
@@ -134,25 +150,35 @@ export class OpenRouterExtractionProvider implements ExtractionService {
       throw new Error("Network issue. Please check your connection and try again.");
     }
 
-    if (response.status === 401) {
+    if (response.status === 401 || response.status === 403) {
       throw new Error(
         "Extraction is not configured correctly. Check OPENROUTER_API_KEY and try again."
       );
     }
 
-    if ((response.status === 429 || response.status === 402) && attempt === 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+    const rateLimited = response.status === 429 || response.status === 402;
+    const transient =
+      response.status === 500 ||
+      response.status === 502 ||
+      response.status === 503 ||
+      response.status === 504;
+
+    if ((rateLimited || transient) && attempt < MAX_ATTEMPTS) {
+      const delay = RETRY_DELAYS_MS[attempt - 1] ?? 8000;
+      await new Promise((resolve) => setTimeout(resolve, delay));
       return this.complete(body, attempt + 1);
     }
 
-    if (response.status === 429 || response.status === 402) {
+    if (rateLimited) {
       throw new Error(
-        "The free extraction service is busy right now. Please wait a minute and try again."
+        "The free extraction service is busy right now. Please wait a minute and try again with fewer pages."
       );
     }
 
     if (!response.ok) {
-      throw new Error("Processing failed. Please try again in a moment.");
+      throw new Error(
+        `Processing failed (status ${response.status}). Please try again in a moment.`
+      );
     }
 
     const data = (await response.json()) as {

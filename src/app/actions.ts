@@ -2,6 +2,7 @@
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getFriendlyMessage } from "@/lib/errors";
@@ -51,8 +52,16 @@ async function requireAdmin() {
 async function sendInviteEmail(email: string) {
   try {
     const admin = createAdminClient();
+    const headerStore = await headers();
+    const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+    const proto = headerStore.get("x-forwarded-proto") ?? "https";
+    const origin = host ? `${proto}://${host}` : null;
 
-    const { error } = await admin.auth.admin.inviteUserByEmail(email);
+    const { error } = await admin.auth.admin.inviteUserByEmail(email, {
+      ...(origin
+        ? { redirectTo: `${origin}/auth/callback?next=/dashboard` }
+        : {}),
+    });
 
     if (error) {
       console.error("Failed to send invite email", error.message);

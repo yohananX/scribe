@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { EXAM_LIMITS, formatMb } from "@/lib/exam-limits";
 
 type CapturedPage = {
   id: string;
@@ -20,20 +21,59 @@ export function PageCapture() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
+  const pagesRef = useRef<CapturedPage[]>([]);
+
+  useEffect(() => {
+    pagesRef.current = pages;
+  }, [pages]);
+
   useEffect(() => {
     return () => {
-      pages.forEach((page) => URL.revokeObjectURL(page.url));
+      pagesRef.current.forEach((page) => URL.revokeObjectURL(page.url));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function addFiles(list: FileList | null) {
     if (!list) return;
 
+    const incoming = Array.from(list);
+    const totalAfter = pages.length + incoming.length;
+    if (totalAfter > EXAM_LIMITS.maxPages) {
+      setError(
+        `Too many pages (max ${EXAM_LIMITS.maxPages}). Process the first batch, then create another exam for the rest.`
+      );
+      return;
+    }
+
+    for (const file of incoming) {
+      const type = (file.type || "").toLowerCase();
+      if (type === "image/heic" || type === "image/heif") {
+        setError(
+          "One photo is HEIC (iPhone). Change camera to JPG or re-save as JPG/PNG first."
+        );
+        return;
+      }
+      if (file.size > EXAM_LIMITS.maxFileBytes) {
+        setError(
+          `One image is ${formatMb(file.size)} (max ${formatMb(EXAM_LIMITS.maxFileBytes)}). Use a smaller photo.`
+        );
+        return;
+      }
+    }
+
+    const currentTotal = pages.reduce((sum, p) => sum + p.file.size, 0);
+    const incomingTotal = incoming.reduce((sum, f) => sum + f.size, 0);
+    if (currentTotal + incomingTotal > EXAM_LIMITS.maxTotalBytes) {
+      setError(
+        `Those pages exceed ${formatMb(EXAM_LIMITS.maxTotalBytes)} total. Process fewer pages at once.`
+      );
+      return;
+    }
+
     setError(null);
     setPages((prev) => [
       ...prev,
-      ...Array.from(list).map((file) => ({
+      ...incoming.map((file) => ({
         id: crypto.randomUUID(),
         file,
         url: URL.createObjectURL(file),
@@ -122,8 +162,9 @@ export function PageCapture() {
       </div>
 
       <p className="mt-3 text-sm text-neutral-500">
-        Capture each page of your handwritten exam. You can add more pages,
-        reorder them, or remove mistakes before processing.
+        Capture each page of your handwritten exam. Max {EXAM_LIMITS.maxPages}{" "}
+        pages and {formatMb(EXAM_LIMITS.maxTotalBytes)} total per run. JPG/PNG
+        only — HEIC photos must be converted first.
       </p>
 
       {pages.length > 0 && (
@@ -204,7 +245,10 @@ export function PageCapture() {
       {pending && (
         <div className="mt-4 flex items-center justify-center gap-3 text-neutral-600">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-primary-600" />
-          <span className="text-sm">Reading your pages...</span>
+          <span className="text-sm">
+            Reading {pages.length} page{pages.length === 1 ? "" : "s"} — usually
+            20–50s. Keep this tab open.
+          </span>
         </div>
       )}
     </div>
