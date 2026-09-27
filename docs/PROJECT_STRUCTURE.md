@@ -42,8 +42,11 @@
 
 ## Extraction
 - Abstracted behind `ExtractionService`
-- MVP provider: `MockExtractionProvider`
-- Swap by changing `EXTRACTION_PROVIDER` env value
+- Providers: `OpenRouterExtractionProvider` (free vision LLM via OpenRouter),
+  `MockExtractionProvider` (fixed sample questions, for offline development)
+- Swap by changing `EXTRACTION_PROVIDER` env value (`openrouter` | `mock`)
+- OpenRouter needs `OPENROUTER_API_KEY`; the model is set with
+  `OPENROUTER_VISION_MODEL` (default: `google/gemma-4-26b-a4b-it:free`)
 
 ## RLS
 - Organisation and teacher isolation enforced in Postgres

@@ -1,7 +1,7 @@
 export interface ExtractedQuestion {
   id: string;
   text: string;
-  marks?: number;
+  marks?: number | null;
   options?: string[];
   order: number;
   pageNumber: number;
