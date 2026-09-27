@@ -22,7 +22,16 @@ export default function LoginPage() {
         body: JSON.stringify({ mode, email, password }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: { error?: string; message?: string } = {};
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText) as typeof data;
+        } catch {
+          throw new Error("The sign-in service returned an invalid response. Please try again.");
+        }
+      }
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to sign in");
@@ -35,7 +44,12 @@ export default function LoginPage() {
       }
 
       setStatus("success");
-      setMessage("Check your email for a magic link to sign in.");
+      setMessage(
+        data.message ||
+          (mode === "magic"
+            ? "Check your email for a magic link to sign in."
+            : "You are signed in.")
+      );
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Something went wrong");

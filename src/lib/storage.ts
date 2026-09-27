@@ -1,26 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
-const LOGO_BUCKET = "logos";
 const EXAM_PAGES_BUCKET = "exam-pages";
-
-export async function uploadLogo(organisationId: string, file: File) {
-  const supabase = await createClient();
-  const path = `${organisationId}/${crypto.randomUUID()}-${file.name}`;
-
-  const { error } = await supabase.storage
-    .from(LOGO_BUCKET)
-    .upload(path, file, {
-      cacheControl: "3600",
-      upsert: true,
-      contentType: file.type,
-    });
-
-  if (error) {
-    throw new Error(`Failed to upload logo: ${error.message}`);
-  }
-
-  return path;
-}
 
 export async function uploadExamPage(examId: string, pageNumber: number, file: File) {
   const supabase = await createClient();
@@ -39,12 +19,6 @@ export async function uploadExamPage(examId: string, pageNumber: number, file: F
   }
 
   return path;
-}
-
-export async function getLogoPublicUrl(path: string) {
-  const supabase = await createClient();
-  const { data } = supabase.storage.from(LOGO_BUCKET).getPublicUrl(path);
-  return data.publicUrl;
 }
 
 export async function getExamPageSignedUrl(path: string, expiresIn = 60) {

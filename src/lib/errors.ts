@@ -12,6 +12,15 @@ export function toAppError(error: unknown): AppError {
     return { message: error };
   }
 
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return { message: error.message };
+  }
+
   return { message: "Something went wrong. Please try again." };
 }
 
@@ -32,6 +41,13 @@ export function getFriendlyMessage(error: unknown): string {
 
   if (appError.message.includes("processing")) {
     return "Processing failed. Please try again or contact support if it keeps happening.";
+  }
+
+  if (
+    appError.message.includes("row-level security") ||
+    appError.message.includes("infinite recursion")
+  ) {
+    return "Your account setup is not available yet. Please try again after the database access setup is completed.";
   }
 
   return appError.message;

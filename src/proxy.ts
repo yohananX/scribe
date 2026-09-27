@@ -2,13 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/proxy";
 
 export async function proxy(request: NextRequest) {
-  const response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  });
-
-  const session = await updateSession(request);
+  const { response, userId } = await updateSession(request);
 
   const isAuthPage = request.nextUrl.pathname === "/login";
   const isProtectedRoute =
@@ -17,14 +11,24 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/exams") ||
     request.nextUrl.pathname.startsWith("/onboarding");
 
-  if (isProtectedRoute && !session) {
-    return NextResponse.redirect(new URL("/login", request.url));
+  if (isProtectedRoute && !userId) {
+    return redirectWithSession("/login", request, response);
   }
 
-  if (isAuthPage && session) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+  if (isAuthPage && userId) {
+    return redirectWithSession("/dashboard", request, response);
   }
 
+  return response;
+}
+
+function redirectWithSession(
+  path: string,
+  request: NextRequest,
+  sessionResponse: NextResponse
+) {
+  const response = NextResponse.redirect(new URL(path, request.url));
+  sessionResponse.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
   return response;
 }
 

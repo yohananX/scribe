@@ -41,13 +41,24 @@ export default async function DashboardPage() {
             <p className="mt-1 text-sm text-neutral-600">Invite and manage teachers in your organisation.</p>
           </a>
         )}
-        <a
-          href="/admin/template"
-          className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition-colors hover:border-primary-300"
-        >
-          <h2 className="text-lg font-semibold text-neutral-900">Template</h2>
-          <p className="mt-1 text-sm text-neutral-600">Configure the official school exam template.</p>
-        </a>
+        {isAdmin && (
+          <a
+            href="/admin/exams"
+            className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition-colors hover:border-primary-300"
+          >
+            <h2 className="text-lg font-semibold text-neutral-900">All Exams</h2>
+            <p className="mt-1 text-sm text-neutral-600">View every exam in your school, grouped by class.</p>
+          </a>
+        )}
+        {isAdmin && (
+          <a
+            href="/admin/template"
+            className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition-colors hover:border-primary-300"
+          >
+            <h2 className="text-lg font-semibold text-neutral-900">Template</h2>
+            <p className="mt-1 text-sm text-neutral-600">Configure the official school exam template.</p>
+          </a>
+        )}
         <a
           href="/exams/new"
           className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition-colors hover:border-primary-300"

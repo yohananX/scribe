@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFriendlyMessage } from "@/lib/errors";
-import { ensureProfileRow, linkInvitationIfAny } from "@/lib/profile";
+import { linkInvitationIfAny } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
 
 type LoginBody = {
@@ -12,15 +12,36 @@ type LoginBody = {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
-    const body = (await request.json()) as LoginBody;
+    let body: LoginBody;
+
+    try {
+      body = (await request.json()) as LoginBody;
+    } catch {
+      return NextResponse.json(
+        { error: "Send a valid login request." },
+        { status: 400, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    if (body.mode && body.mode !== "magic" && body.mode !== "password") {
+      return NextResponse.json(
+        { error: "Choose a valid sign-in method." },
+        { status: 400, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
     const email = body.email?.trim().toLowerCase();
 
     if (!email) {
-      return NextResponse.json({ error: "Enter your email address." }, { status: 400 });
+      return jsonError("Enter your email address.", 400);
     }
 
     if (body.mode === "password") {
-      return handlePasswordLogin(supabase, email, body.password ?? "");
+      return handlePasswordLogin(
+        supabase,
+        email,
+        body.password ?? ""
+      );
     }
 
     const { error } = await supabase.auth.signInWithOtp({
@@ -37,11 +58,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ message: "Magic link sent" });
+    return NextResponse.json(
+      { message: "Magic link sent" },
+      { status: 202, headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
     return NextResponse.json(
       { error: getFriendlyMessage(error) },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }
@@ -51,57 +75,26 @@ async function handlePasswordLogin(
   email: string,
   password: string
 ) {
-  if (!password) {
-    return NextResponse.json({ error: "Enter your password." }, { status: 400 });
-  }
+  if (!password) return jsonError("Enter your password.", 400);
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
 
-  if (error) {
-    if (error.message.includes("Invalid login credentials")) {
-      return handleAccountCreation(supabase, email, password);
-    }
+  if (error) return jsonError(getFriendlyMessage(error), 401);
 
-    return NextResponse.json({ error: getFriendlyMessage(error) }, { status: 400 });
-  }
-
-  await ensureProfileRow(data.user);
   await linkInvitationIfAny(data.user);
 
-  return NextResponse.json({ message: "Signed in" });
+  return NextResponse.json(
+    { message: "Signed in" },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
-async function handleAccountCreation(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  email: string,
-  password: string
-) {
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-  });
-
-  if (error) {
-    return NextResponse.json(
-      { error: getFriendlyMessage(error) },
-      { status: 400 }
-    );
-  }
-
-  if (data.session) {
-    if (!data.user) {
-      return NextResponse.json({ message: "Signed in" });
-    }
-
-    await ensureProfileRow(data.user);
-    await linkInvitationIfAny(data.user);
-    return NextResponse.json({ message: "Signed in" });
-  }
-
-  return NextResponse.json({
-    message: "Check your email to confirm your account.",
-  });
+function jsonError(error: string, status: 400 | 401) {
+  return NextResponse.json(
+    { error },
+    { status, headers: { "Cache-Control": "no-store" } }
+  );
 }

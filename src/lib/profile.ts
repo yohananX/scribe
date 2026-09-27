@@ -2,19 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/types/database";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
-export async function ensureProfileRow(user: User) {
-  const supabase = await createClient();
-
-  const { error } = await supabase.from("profiles").upsert(
-    { id: user.id, email: user.email ?? "" },
-    { onConflict: "id" }
-  );
-
-  if (error) {
-    throw new Error(`Failed to set up account: ${error.message}`);
-  }
-}
-
 export async function linkInvitationIfAny(user: User) {
   const supabase = await createClient();
 

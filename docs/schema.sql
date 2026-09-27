@@ -8,6 +8,7 @@ create table organisations (
   id uuid primary key default uuid_generate_v4(),
   name text not null,
   contact_email text,
+  created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -92,10 +93,66 @@ create table questions (
   text text not null,
   marks int,
   options jsonb default '[]',
-  order int not null,
+  "order" int not null,
   page_number int,
   created_at timestamptz not null default now()
 );
+
+-- Helper lookups that bypass RLS (security definer) so policies on
+-- profiles never query profiles directly (that caused infinite recursion).
+create schema if not exists private;
+revoke all on schema private from public;
+grant usage on schema private to authenticated;
+
+create or replace function private.current_user_organisation_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select organisation_id
+  from public.profiles
+  where id = (select auth.uid());
+$$;
+
+create or replace function private.is_current_user_org_admin(target_organisation_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where id = (select auth.uid())
+      and organisation_id = target_organisation_id
+      and role = 'admin'
+  );
+$$;
+
+create or replace function private.is_current_user_org_creator(target_organisation_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.organisations
+    where id = target_organisation_id
+      and created_by = (select auth.uid())
+  );
+$$;
+
+revoke all on function private.current_user_organisation_id() from public;
+revoke all on function private.is_current_user_org_admin(uuid) from public;
+revoke all on function private.is_current_user_org_creator(uuid) from public;
+grant execute on function private.current_user_organisation_id() to authenticated;
+grant execute on function private.is_current_user_org_admin(uuid) to authenticated;
+grant execute on function private.is_current_user_org_creator(uuid) to authenticated;
 
 -- RLS Policies
 
@@ -108,9 +165,9 @@ alter table questions enable row level security;
 alter table invitations enable row level security;
 
 -- Any signed-in user can create an organisation (they become the first admin)
-create policy "Users can create an organisation" on organisations for insert with check (
-  auth.uid() is not null
-);
+create policy "Users can create their own organisation"
+on organisations for insert to authenticated
+with check (created_by = (select auth.uid()));
 
 create policy "Users view their own org" on organisations for select using (
   id in (select organisation_id from profiles where id = auth.uid())
@@ -120,23 +177,53 @@ create policy "Admins update org" on organisations for update using (
   id in (select organisation_id from profiles where id = auth.uid() and role = 'admin')
 );
 
--- Profiles: a user can create and update their own row
+-- Profiles: a user can create their own row; reads and updates go through
+-- the non-recursive helpers above.
 create policy "Users create their own profile" on profiles for insert with check (
   id = auth.uid()
 );
 
-create policy "Users update their own profile" on profiles for update using (
-  id = auth.uid()
-) with check (
-  id = auth.uid()
+create policy "Users view their own profile or organisation members"
+on public.profiles for select to authenticated
+using (
+  id = (select auth.uid())
+  or organisation_id = (select private.current_user_organisation_id())
 );
 
-create policy "Users view profiles in org" on profiles for select using (
-  organisation_id in (select organisation_id from profiles where id = auth.uid())
+create policy "Admins update organisation profiles"
+on public.profiles for update to authenticated
+using ((select private.is_current_user_org_admin(organisation_id)))
+with check (
+  organisation_id is null
+  or (select private.is_current_user_org_admin(organisation_id))
 );
 
-create policy "Admins manage profiles" on profiles for all using (
-  organisation_id in (select organisation_id from profiles where id = auth.uid() and role = 'admin')
+create policy "Users create their organisation"
+on public.profiles for update to authenticated
+using (id = (select auth.uid()) and organisation_id is null)
+with check (
+  id = (select auth.uid())
+  and role = 'admin'
+  and (select private.is_current_user_org_creator(organisation_id))
+);
+
+-- A newly authenticated teacher may join only through a pending invitation
+-- addressed to the same authenticated email address.
+create policy "Users join through their own pending invitation"
+on public.profiles for update to authenticated
+using (id = (select auth.uid()) and organisation_id is null)
+with check (
+  id = (select auth.uid())
+  and role = 'teacher'
+  and exists (
+    select 1
+    from public.invitations
+    where invitations.status = 'pending'
+      and invitations.organisation_id = profiles.organisation_id
+      and invitations.email = (
+        select email from auth.users where id = (select auth.uid())
+      )
+  )
 );
 
 -- Invitations: org admins manage; the invited user can see only their own
@@ -146,6 +233,18 @@ create policy "Admins manage invitations" on invitations for all using (
 
 create policy "Users view their own invitation" on invitations for select using (
   email = (select email from auth.users where id = auth.uid())
+);
+
+-- The invited teacher marks their own invitation accepted when they join.
+create policy "Invitees accept their own invitation"
+on public.invitations for update to authenticated
+using (
+  status = 'pending'
+  and email = (select email from auth.users where id = (select auth.uid()))
+)
+with check (
+  status = 'accepted'
+  and email = (select email from auth.users where id = (select auth.uid()))
 );
 
 create policy "Users view org template" on templates for select using (
@@ -194,9 +293,8 @@ create policy "Teachers manage own questions" on questions for all using (
   )
 );
 
--- Public storage buckets for logos and exam pages can be created in Supabase Storage UI
--- Recommended buckets: logos (private), exam-pages (private)
--- Logos are served to the editor/print views via short-lived signed URLs.
+-- Private storage buckets for logos and exam pages (created below).
+-- Files are served to the editor/preview views via short-lived signed URLs.
 
 -- Storage buckets
 insert into storage.buckets (id, name, public)
@@ -221,6 +319,46 @@ on storage.objects for insert with check (
     where exams.id = public.exam_id_from_storage_path(name)
       and exams.teacher_id = auth.uid()
   )
+);
+
+-- Exam owners and org admins may replace or remove page files
+-- (used by upload retries and failed-creation cleanup).
+create policy "Owners and admins manage exam page files"
+on storage.objects for update using (
+  bucket_id = 'exam-pages'
+  and exists (
+    select 1 from exams
+    where exams.id = public.exam_id_from_storage_path(name)
+      and (
+        exams.teacher_id = auth.uid()
+        or private.is_current_user_org_admin(exams.organisation_id)
+      )
+  )
+);
+
+create policy "Owners and admins remove exam page files"
+on storage.objects for delete using (
+  bucket_id = 'exam-pages'
+  and exists (
+    select 1 from exams
+    where exams.id = public.exam_id_from_storage_path(name)
+      and (
+        exams.teacher_id = auth.uid()
+        or private.is_current_user_org_admin(exams.organisation_id)
+      )
+  )
+);
+
+-- Logo files live under "<organisation_id>/...". Only an admin of that
+-- organisation may upload, replace or remove them.
+create policy "Admins manage organisation logos"
+on storage.objects for all using (
+  bucket_id = 'logos'
+  and private.is_current_user_org_admin((storage.foldername(name))[1]::uuid)
+)
+with check (
+  bucket_id = 'logos'
+  and private.is_current_user_org_admin((storage.foldername(name))[1]::uuid)
 );
 
 -- Exam owners and admins can read exam pages; any member can read logos

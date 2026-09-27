@@ -111,12 +111,26 @@ export async function createExamFromPages(
     examId = exam.id;
 
     const imageUris: string[] = [];
+    const pageRows: { exam_id: string; page_number: number; storage_path: string }[] = [];
 
     for (let index = 0; index < files.length; index += 1) {
       const path = await uploadExamPage(exam.id, index + 1, files[index]);
       uploadedPaths.push(path);
+      pageRows.push({
+        exam_id: exam.id,
+        page_number: index + 1,
+        storage_path: path,
+      });
       const signedUrl = await getExamPageSignedUrl(path, 300);
       imageUris.push(signedUrl);
+    }
+
+    const { error: pagesError } = await supabase
+      .from("exam_pages")
+      .insert(pageRows);
+
+    if (pagesError) {
+      throw pagesError;
     }
 
     const provider = getExtractionProvider();
@@ -134,14 +148,12 @@ export async function createExamFromPages(
     );
 
     if (insertError) {
-      await supabase.storage.from("exam-pages").remove(uploadedPaths);
-      return { ok: false, message: getFriendlyMessage(insertError) };
+      throw insertError;
     }
-
-    revalidatePath("/exams");
-    redirect(`/exams/${examId}/review`);
   } catch (error) {
-    await supabase.storage.from("exam-pages").remove(uploadedPaths);
+    if (uploadedPaths.length > 0) {
+      await supabase.storage.from("exam-pages").remove(uploadedPaths);
+    }
 
     if (examId) {
       await supabase.from("exams").delete().eq("id", examId);
@@ -149,6 +161,9 @@ export async function createExamFromPages(
 
     return { ok: false, message: getFriendlyMessage(error) };
   }
+
+  revalidatePath("/exams");
+  redirect(`/exams/${examId}/review`);
 }
 
 export async function saveExam(

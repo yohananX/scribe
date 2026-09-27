@@ -50,16 +50,7 @@ async function requireAdmin() {
 
 async function sendInviteEmail(email: string) {
   try {
-    const admin = createSupabaseClient(
-      env.NEXT_PUBLIC_SUPABASE_URL,
-      env.SUPABASE_SERVICE_ROLE_KEY,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
-    );
+    const admin = createAdminClient();
 
     const { error } = await admin.auth.admin.inviteUserByEmail(email);
 
@@ -69,6 +60,19 @@ async function sendInviteEmail(email: string) {
   } catch (error) {
     console.error("Failed to send invite email", error);
   }
+}
+
+function createAdminClient() {
+  return createSupabaseClient(
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.SUPABASE_SERVICE_ROLE_KEY,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  );
 }
 
 export async function createOrganisation(
@@ -100,12 +104,16 @@ export async function createOrganisation(
     redirect("/dashboard");
   }
 
+  const admin = createAdminClient();
+  let createdOrganisationId: string | null = null;
+
   try {
-    const { data: organisation, error: organisationError } = await supabase
+    const { data: organisation, error: organisationError } = await admin
       .from("organisations")
       .insert({
         name: parsed.data.name,
         contact_email: parsed.data.contactEmail || null,
+        created_by: user.id,
       })
       .select("id")
       .single();
@@ -114,7 +122,9 @@ export async function createOrganisation(
       throw organisationError;
     }
 
-    const { error: profileError } = await supabase
+    createdOrganisationId = organisation.id;
+
+    const { error: profileError } = await admin
       .from("profiles")
       .update({ organisation_id: organisation.id, role: "admin" })
       .eq("id", user.id);
@@ -123,6 +133,11 @@ export async function createOrganisation(
       throw profileError;
     }
   } catch (error) {
+    if (createdOrganisationId) {
+      await admin.from("organisations").delete().eq("id", createdOrganisationId);
+    }
+
+    console.error("Failed to create organisation", error);
     return { message: getFriendlyMessage(error) };
   }
 

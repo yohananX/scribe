@@ -42,7 +42,9 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
     redirect("/exams");
   }
 
-  if (exam!.status === "draft") {
+  const isOwner = exam!.teacher_id === user.id;
+
+  if (exam!.status === "draft" && isOwner) {
     await supabase
       .from("exams")
       .update({
@@ -110,12 +112,14 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <a
-              href={`/exams/${id}/review`}
-              className="text-sm font-medium text-neutral-600 hover:text-neutral-900"
-            >
-              Back to edit
-            </a>
+            {isOwner && (
+              <a
+                href={`/exams/${id}/review`}
+                className="text-sm font-medium text-neutral-600 hover:text-neutral-900"
+              >
+                Back to edit
+              </a>
+            )}
             <PrintButton />
           </div>
         </div>

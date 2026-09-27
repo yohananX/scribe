@@ -1,3 +1,5 @@
+import type { TemplateConfig } from "@/lib/template";
+
 export type Organisation = {
   id: string;
   name: string;
@@ -24,8 +26,6 @@ export type Invitation = {
   created_by: string | null;
   created_at: string;
 };
-
-import type { TemplateConfig } from "@/lib/template";
 
 export type Template = {
   id: string;

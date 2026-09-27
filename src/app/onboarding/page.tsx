@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { OrganisationForm } from "@/components/org/OrganisationForm";
-import { ensureProfileRow, getProfile } from "@/lib/profile";
+import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function OnboardingPage() {
@@ -13,8 +13,6 @@ export default async function OnboardingPage() {
   if (!user) {
     redirect("/login");
   }
-
-  await ensureProfileRow(user);
 
   const profile = await getProfile(supabase, user.id);
 
