@@ -56,9 +56,14 @@ export default async function ExamsPage() {
               .filter(Boolean)
               .join(" - ");
 
+            const examHref =
+              exam.status === "finalized"
+                ? `/exams/${exam.id}/preview`
+                : `/exams/${exam.id}/review`;
+
             return (
               <li key={exam.id}>
-                <a href={`/exams/${exam.id}/preview`}>
+                <a href={examHref}>
                   <Card className="flex items-center justify-between gap-4 p-5 transition-colors hover:border-primary-300">
                     <div className="min-w-0">
                       <p className="truncate text-base font-medium text-neutral-900">

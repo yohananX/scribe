@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
       email,
       password,
       options: {
-        emailRedirectTo: `${origin}/auth/callback?next=/onboarding`,
+        emailRedirectTo: `${origin}/auth/callback?next=/dashboard`,
       },
     });
 

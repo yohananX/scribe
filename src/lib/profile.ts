@@ -16,10 +16,18 @@ export async function linkInvitationIfAny(user: User) {
     return;
   }
 
+  // Preserve existing full_name if present
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", user.id)
+    .maybeSingle();
+
   const { error: profileError } = await supabase.from("profiles").upsert(
     {
       id: user.id,
       email: user.email ?? "",
+      full_name: existingProfile?.full_name ?? user.user_metadata?.full_name ?? null,
       organisation_id: invitation.organisation_id,
       role: "teacher",
     },
