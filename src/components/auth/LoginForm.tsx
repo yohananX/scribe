@@ -33,7 +33,7 @@ export function LoginForm({ onSubmit, isLoading }: LoginFormProps) {
           required
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          className="h-11 rounded-xl border border-neutral-300 bg-white px-4 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+          className="h-11 rounded-md border border-neutral-300 bg-white px-4 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           placeholder="you@school.edu"
         />
       </div>
@@ -51,7 +51,7 @@ export function LoginForm({ onSubmit, isLoading }: LoginFormProps) {
             required
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className="h-11 rounded-xl border border-neutral-300 bg-white px-4 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            className="h-11 rounded-md border border-neutral-300 bg-white px-4 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             placeholder="Your password"
           />
         </div>

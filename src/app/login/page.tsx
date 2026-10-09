@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { LoginForm, type LoginMode } from "@/components/auth/LoginForm";
+import { AuthFrame } from "@/components/auth/AuthFrame";
 
 function friendlyError(code: string | null): string | null {
   if (!code) return null;
@@ -72,18 +73,11 @@ function LoginInner() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-50 px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-semibold text-neutral-900">
-            Welcome to Scribe
-          </h1>
-          <p className="mt-2 text-sm text-neutral-600">
-            {status === "success"
-              ? "Check your email to finish signing in."
-              : "Sign in to continue to your school dashboard."}
-          </p>
-        </div>
+    <AuthFrame
+      eyebrow="Welcome back"
+      title="Sign in to Scribe"
+      description={status === "success" ? "Check your email to finish signing in." : "Continue to your school dashboard and exam workspace."}
+    >
         <LoginForm onSubmit={handleSubmit} isLoading={status === "loading"} />
         {status === "success" && (
           <p className="mt-4 text-center text-sm text-success-600">{message}</p>
@@ -91,7 +85,7 @@ function LoginInner() {
         {status === "error" && (
           <p className="mt-4 text-center text-sm text-error-600">{message}</p>
         )}
-        <p className="mt-6 text-center text-sm text-neutral-600">
+        <p className="mt-7 text-center text-sm text-neutral-600">
           New to Scribe?{" "}
           <Link
             href="/signup"
@@ -100,8 +94,7 @@ function LoginInner() {
             Create an account
           </Link>
         </p>
-      </div>
-    </div>
+    </AuthFrame>
   );
 }
 

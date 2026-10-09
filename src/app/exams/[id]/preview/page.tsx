@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { FinalizeOnView } from "@/components/exams/FinalizeOnView";
 import { ExamPreview } from "@/components/template/ExamPreview";
 import { PrintButton } from "@/components/exams/PrintButton";
 import { getProfile } from "@/lib/profile";
@@ -44,7 +43,6 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
   }
 
   const isOwner = exam!.teacher_id === user.id;
-  const shouldFinalize = exam!.status === "draft" && isOwner;
 
   const { data: questions } = await supabase
     .from("questions")
@@ -95,7 +93,6 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
 
   return (
     <div>
-      {shouldFinalize && <FinalizeOnView examId={id} />}
       <div className="no-print">
         <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-6 sm:flex-row sm:items-center sm:justify-between">
           <div>

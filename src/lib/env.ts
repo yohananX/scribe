@@ -10,7 +10,7 @@ const envSchema = z
     OPENROUTER_VISION_MODEL: z
       .string()
       .min(1)
-      .default("google/gemma-4-26b-a4b-it:free"),
+      .default("openrouter/free"),
   })
   .superRefine((value, ctx) => {
     if (value.EXTRACTION_PROVIDER === "openrouter" && !value.OPENROUTER_API_KEY) {

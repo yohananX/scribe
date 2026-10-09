@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { AuthFrame } from "@/components/auth/AuthFrame";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -51,16 +52,11 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-50 px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-semibold text-neutral-900">
-            Create your Scribe account
-          </h1>
-          <p className="mt-2 text-sm text-neutral-600">
-            Sign up with email and password, then set up your school.
-          </p>
-        </div>
+    <AuthFrame
+      eyebrow="Get started"
+      title="Create your account"
+      description="Sign up with your email, then set up your school workspace."
+    >
         <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="email" className="text-sm font-medium text-neutral-700">
@@ -72,7 +68,7 @@ export default function SignupPage() {
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="h-11 rounded-xl border border-neutral-300 bg-white px-4 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+              className="h-11 rounded-md border border-neutral-300 bg-white px-4 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
               placeholder="you@school.edu"
             />
           </div>
@@ -90,7 +86,7 @@ export default function SignupPage() {
               minLength={8}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="h-11 rounded-xl border border-neutral-300 bg-white px-4 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+              className="h-11 rounded-md border border-neutral-300 bg-white px-4 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
               placeholder="At least 8 characters"
             />
           </div>
@@ -104,7 +100,7 @@ export default function SignupPage() {
         {status === "error" && (
           <p className="mt-4 text-center text-sm text-error-600">{message}</p>
         )}
-        <p className="mt-6 text-center text-sm text-neutral-600">
+        <p className="mt-7 text-center text-sm text-neutral-600">
           Already have an account?{" "}
           <Link
             href="/login"
@@ -113,7 +109,6 @@ export default function SignupPage() {
             Sign in
           </Link>
         </p>
-      </div>
-    </div>
+    </AuthFrame>
   );
 }

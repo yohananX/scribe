@@ -1,8 +1,34 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { updateSession } from "@/lib/supabase/proxy";
+import { createServerClient } from "@supabase/ssr";
+import { env } from "@/lib/env";
 
 export async function proxy(request: NextRequest) {
-  const { response, userId } = await updateSession(request);
+  const response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
+
+  const supabase = createServerClient(
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          );
+        },
+      },
+    }
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const isAuthPage =
     request.nextUrl.pathname === "/login" ||
@@ -13,29 +39,19 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/exams") ||
     request.nextUrl.pathname.startsWith("/onboarding");
 
-  if (isProtectedRoute && !userId) {
+  if (isProtectedRoute && !user) {
     const loginUrl = new URL("/login", request.url);
     const attempted = request.nextUrl.pathname + request.nextUrl.search;
     if (attempted !== "/dashboard" && attempted !== "/") {
       loginUrl.searchParams.set("next", attempted);
     }
-    return redirectWithSession(loginUrl.pathname + loginUrl.search, request, response);
+    return NextResponse.redirect(loginUrl);
   }
 
-  if (isAuthPage && userId) {
-    return redirectWithSession("/dashboard", request, response);
+  if (isAuthPage && user) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return response;
-}
-
-function redirectWithSession(
-  path: string,
-  request: NextRequest,
-  sessionResponse: NextResponse
-) {
-  const response = NextResponse.redirect(new URL(path, request.url));
-  sessionResponse.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
   return response;
 }
 

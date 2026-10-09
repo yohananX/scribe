@@ -256,12 +256,9 @@ export async function saveExam(
   }
 
   // Missing function -> fall back to safe differential save.
+  // Postgres error code 42883 = undefined_function.
   // Any other RPC error is a real validation/auth failure.
-  const isMissingFn =
-    rpcError.code === "42883" ||
-    rpcError.message?.includes("save_exam_with_questions") ||
-    rpcError.message?.includes("function") ||
-    rpcError.message?.includes("not found");
+  const isMissingFn = rpcError.code === "42883";
 
   if (!isMissingFn) {
     return { ok: false, message: getFriendlyMessage(rpcError) };

@@ -282,3 +282,9 @@ export async function saveTemplate(input: unknown): Promise<SaveTemplateResult> 
   revalidatePath("/admin/template");
   return { ok: true, message: "Template saved. Your exam preview is up to date." };
 }
+
+export async function signOut(): Promise<void> {
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  redirect("/login");
+}
