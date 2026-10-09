@@ -1,43 +1,65 @@
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { revokeInvitation, removeTeacher } from "@/app/actions";
 import { InviteTeacherForm } from "@/components/admin/InviteTeacherForm";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
+import { getCachedProfile } from "@/lib/profile";
 import type { Invitation, Profile } from "@/types/database";
+
+const getPendingInvitations = unstable_cache(
+  async (orgId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("invitations")
+      .select("*")
+      .eq("organisation_id", orgId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: true });
+    return data;
+  },
+  ["org-invitations"],
+  { tags: ["invitations"], revalidate: 60 }
+);
+
+const getTeachers = unstable_cache(
+  async (orgId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, email, full_name")
+      .eq("organisation_id", orgId)
+      .eq("role", "teacher")
+      .order("email", { ascending: true });
+    return data;
+  },
+  ["org-teachers"],
+  { tags: ["profiles"], revalidate: 300 }
+);
 
 export default async function TeachersPage() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, user.id);
+  const profile = await getCachedProfile(session.user.id);
 
   if (!profile?.organisation_id || profile.role !== "admin") {
     redirect("/dashboard");
   }
 
-  const { data: invitations } = await supabase
-    .from("invitations")
-    .select("*")
-    .eq("organisation_id", profile.organisation_id)
-    .eq("status", "pending")
-    .order("created_at", { ascending: true });
+  const orgId = profile.organisation_id;
 
-  const { data: teachers } = await supabase
-    .from("profiles")
-    .select("id, email, full_name")
-    .eq("organisation_id", profile.organisation_id)
-    .eq("role", "teacher")
-    .order("email", { ascending: true });
+  const [invitations, teachers] = await Promise.all([
+    getPendingInvitations(orgId),
+    getTeachers(orgId),
+  ]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">

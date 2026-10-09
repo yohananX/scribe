@@ -1,62 +1,75 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { Badge } from "@/components/ui/Badge";
-import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
+import { getCachedProfile } from "@/lib/profile";
 import type { Exam } from "@/types/database";
+
+const getExamsForOrg = unstable_cache(
+  async (organisationId: string, userId: string, isAdmin: boolean) => {
+    const supabase = await createClient();
+    const query = supabase.from("exams").select("id, title_block, status, created_at, teacher_id");
+    const filteredQuery = isAdmin
+      ? query.eq("organisation_id", organisationId)
+      : query.eq("teacher_id", userId);
+    const { data } = await filteredQuery.order("created_at", { ascending: false }).limit(5);
+    return (data ?? []) as Partial<Exam>[];
+  },
+  ["exams-recent"],
+  { tags: ["exams"], revalidate: 60 }
+);
+
+const getExamCounts = unstable_cache(
+  async (organisationId: string, userId: string, isAdmin: boolean) => {
+    const supabase = await createClient();
+    const query = supabase.from("exams").select("id", { count: "exact", head: true });
+    const filteredQuery = isAdmin
+      ? query.eq("organisation_id", organisationId)
+      : query.eq("teacher_id", userId);
+    const [{ count: total }, { count: drafts }] = await Promise.all([
+      filteredQuery,
+      filteredQuery.eq("status", "draft"),
+    ]);
+    return { total: total ?? 0, drafts: drafts ?? 0 };
+  },
+  ["exams-counts"],
+  { tags: ["exams"], revalidate: 60 }
+);
+
+const getOrgName = unstable_cache(
+  async (organisationId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase.from("organisations").select("name").eq("id", organisationId).maybeSingle();
+    return data?.name ?? "Your school";
+  },
+  ["org-name"],
+  { tags: ["organisation"], revalidate: 300 }
+);
 
 export default async function DashboardPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) redirect("/login");
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  const profile = await getProfile(supabase, user.id);
-
-  if (!profile?.organisation_id) {
-    redirect("/onboarding");
-  }
+  const profile = await getCachedProfile(session.user.id);
+  if (!profile?.organisation_id) redirect("/onboarding");
 
   const isAdmin = profile.role === "admin";
-  const examScope = (
-    columns: string,
-    options?: { count?: "exact"; head?: boolean }
-  ) => {
-    const query = supabase.from("exams").select(columns, options);
-    return isAdmin
-      ? query.eq("organisation_id", profile.organisation_id)
-      : query.eq("teacher_id", user.id);
-  };
+  const organisationId = profile.organisation_id!;
 
-  const [organisationResult, recentResult, totalResult, draftResult] =
-    await Promise.all([
-      supabase
-        .from("organisations")
-        .select("name")
-        .eq("id", profile.organisation_id)
-        .maybeSingle(),
-      examScope("id, title_block, status, created_at")
-        .order("created_at", { ascending: false })
-        .limit(5),
-      examScope("id", { count: "exact", head: true }),
-      examScope("id", { count: "exact", head: true }).eq("status", "draft"),
-    ]);
-
-  const exams = (recentResult.data ?? []) as Partial<Exam>[];
-  const totalCount = totalResult.count ?? 0;
-  const draftCount = draftResult.count ?? 0;
-  const schoolName = organisationResult.data?.name ?? "Your school";
+  const [exams, { total, drafts }, schoolName] = await Promise.all([
+    getExamsForOrg(organisationId, profile.id, isAdmin),
+    getExamCounts(organisationId, profile.id, isAdmin),
+    getOrgName(organisationId),
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-5 py-8 sm:px-8 sm:py-10">
       <div className="flex flex-col justify-between gap-6 border-b border-neutral-200 pb-7 sm:flex-row sm:items-end">
         <div>
           <p className="text-sm font-semibold text-primary-700">{schoolName}</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900">Good to see you{user.email ? `, ${user.email.split("@")[0]}` : ""}.</h1>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-neutral-900">Good to see you{profile.email ? `, ${profile.email.split("@")[0]}` : ""}.</h1>
           <p className="mt-2 text-sm text-neutral-600">
             {isAdmin
               ? "Here is the latest exam activity across your school."
@@ -69,9 +82,9 @@ export default async function DashboardPage() {
       </div>
 
       <section aria-label="Exam overview" className="grid grid-cols-2 gap-3 border-b border-neutral-200 py-6 sm:grid-cols-3 sm:gap-5">
-        <div className="pr-3 sm:border-r sm:border-neutral-200"><p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-500">{isAdmin ? "School exams" : "Your exams"}</p><p className="mt-2 text-3xl font-semibold tabular-nums text-neutral-900">{totalCount}</p></div>
-        <div className="sm:border-r sm:border-neutral-200 sm:px-5"><p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-500">Drafts to review</p><p className="mt-2 text-3xl font-semibold tabular-nums text-[#a44f36]">{draftCount}</p></div>
-        <div className="col-span-2 border-t border-neutral-200 pt-4 sm:col-span-1 sm:border-0 sm:px-5 sm:pt-0"><p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-500">Ready to print</p><p className="mt-2 text-3xl font-semibold tabular-nums text-primary-700">{Math.max(0, totalCount - draftCount)}</p></div>
+        <div className="pr-3 sm:border-r sm:border-neutral-200"><p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-500">{isAdmin ? "School exams" : "Your exams"}</p><p className="mt-2 text-3xl font-semibold tabular-nums text-neutral-900">{total}</p></div>
+        <div className="sm:border-r sm:border-neutral-200 sm:px-5"><p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-500">Drafts to review</p><p className="mt-2 text-3xl font-semibold tabular-nums text-[#a44f36]">{drafts}</p></div>
+        <div className="col-span-2 border-t border-neutral-200 pt-4 sm:col-span-1 sm:border-0 sm:px-5 sm:pt-0"><p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-500">Ready to print</p><p className="mt-2 text-3xl font-semibold tabular-nums text-primary-700">{Math.max(0, total - drafts)}</p></div>
       </section>
 
       <section className="py-7" aria-labelledby="recent-exams-heading">

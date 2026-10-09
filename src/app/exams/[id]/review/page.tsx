@@ -1,57 +1,71 @@
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { ReviewScreen } from "@/components/exams/ReviewScreen";
-import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
+import { getCachedProfile } from "@/lib/profile";
 import {
   normalizeTemplateConfig,
   TITLE_BLOCK_FIELDS,
   type TitleBlockField,
 } from "@/lib/template";
-import type { EditableQuestion, Question } from "@/types/database";
+import type { EditableBlock } from "@/types/database";
 
 type ReviewPageProps = {
   params: Promise<{ id: string }>;
 };
 
+const getExamForReview = unstable_cache(
+  async (examId: string, userId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("exams")
+      .select("id, teacher_id, title_block, structure")
+      .eq("id", examId)
+      .eq("teacher_id", userId)
+      .single();
+    return data;
+  },
+  ["exam-review"],
+  { tags: ["exams"], revalidate: 60 }
+);
+
+const getTemplateForOrg = unstable_cache(
+  async (organisationId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("templates")
+      .select("config")
+      .eq("organisation_id", organisationId)
+      .maybeSingle();
+    return data;
+  },
+  ["org-template"],
+  { tags: ["templates"], revalidate: 300 }
+);
+
 export default async function ReviewPage({ params }: ReviewPageProps) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, user.id);
-
+  const profile = await getCachedProfile(session.user.id);
   if (!profile?.organisation_id) {
     redirect("/onboarding");
   }
 
-  const { data: exam } = await supabase
-    .from("exams")
-    .select("id, teacher_id, title_block")
-    .eq("id", id)
-    .single();
-
-  if (!exam || exam.teacher_id !== user.id) {
+  const exam = await getExamForReview(id, session.user.id);
+  if (!exam) {
     redirect("/exams");
   }
 
-  const { data: questions } = await supabase
-    .from("questions")
-    .select("*")
-    .eq("exam_id", id)
-    .order("order", { ascending: true });
-
-  const { data: template } = await supabase
-    .from("templates")
-    .select("config")
-    .eq("organisation_id", profile.organisation_id)
-    .maybeSingle();
+  const [template] = await Promise.all([
+    getTemplateForOrg(profile.organisation_id),
+  ]);
 
   const config = normalizeTemplateConfig(template?.config);
 
@@ -65,15 +79,20 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
     }
   }
 
-  const editableQuestions: EditableQuestion[] = (questions ?? []).map(
-    (question: Question) => ({
-      id: question.id,
-      text: question.text,
-      marks: question.marks,
-      options: question.options,
-      order: question.order,
-    })
-  );
+  const initialBlocks: EditableBlock[] = (exam.structure ?? []).map((block: any) => ({
+    id: block.id,
+    type: block.type,
+    order: block.order,
+    text: block.text,
+    title: block.title,
+    instructions: block.instructions,
+    content: block.content,
+    questionText: block.questionText,
+    marks: block.marks,
+    options: block.options,
+    subparts: block.subparts,
+    pageNumber: block.pageNumber,
+  }));
 
   const titleFields: TitleBlockField[] = config.titleBlock.fields;
 
@@ -81,7 +100,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
     <div className="mx-auto max-w-3xl px-4 py-6">
       <ReviewScreen
         examId={id}
-        initialQuestions={editableQuestions}
+        initialBlocks={initialBlocks}
         initialTitleBlock={initialTitleBlock}
         titleFields={titleFields}
       />

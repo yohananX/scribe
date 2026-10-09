@@ -1,42 +1,60 @@
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { TemplateEditor } from "@/components/template/TemplateEditor";
-import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
+import { getCachedProfile } from "@/lib/profile";
 import { normalizeTemplateConfig, type TemplateConfig } from "@/lib/template";
+
+const getOrgName = unstable_cache(
+  async (orgId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase.from("organisations").select("name").eq("id", orgId).single();
+    return data?.name ?? "";
+  },
+  ["org-name"],
+  { tags: ["organisation"], revalidate: 300 }
+);
+
+const getTemplateForOrg = unstable_cache(
+  async (orgId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("templates")
+      .select("config")
+      .eq("organisation_id", orgId)
+      .maybeSingle();
+    return data;
+  },
+  ["org-template"],
+  { tags: ["templates"], revalidate: 300 }
+);
 
 export default async function TemplatePage() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, user.id);
+  const profile = await getCachedProfile(session.user.id);
 
   if (!profile?.organisation_id || profile.role !== "admin") {
     redirect("/dashboard");
   }
 
-  const { data: organisation } = await supabase
-    .from("organisations")
-    .select("name")
-    .eq("id", profile.organisation_id)
-    .single();
+  const orgId = profile.organisation_id;
 
-  const { data: template } = await supabase
-    .from("templates")
-    .select("config")
-    .eq("organisation_id", profile.organisation_id)
-    .maybeSingle();
+  const [orgName, template] = await Promise.all([
+    getOrgName(orgId),
+    getTemplateForOrg(orgId),
+  ]);
 
   const config = normalizeTemplateConfig(template?.config);
 
   if (!config.schoolName.name) {
-    config.schoolName = { ...config.schoolName, name: organisation?.name ?? "" };
+    config.schoolName = { ...config.schoolName, name: orgName };
   }
 
   if (config.logo?.path) {
@@ -53,7 +71,7 @@ export default async function TemplatePage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 lg:py-8">
-      <TemplateEditor initialConfig={initialConfig} orgId={profile.organisation_id} />
+      <TemplateEditor initialConfig={initialConfig} orgId={orgId} />
     </div>
   );
 }

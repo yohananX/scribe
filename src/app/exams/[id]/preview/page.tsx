@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { ExamPreview } from "@/components/template/ExamPreview";
 import { PrintButton } from "@/components/exams/PrintButton";
-import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
+import { getCachedProfile } from "@/lib/profile";
 import { normalizeTemplateConfig } from "@/lib/template";
 import type { PreviewExam } from "@/components/template/sampleExam";
 
@@ -10,51 +11,83 @@ type PreviewPageProps = {
   params: Promise<{ id: string }>;
 };
 
+const getExamForPreview = unstable_cache(
+  async (examId: string, userId: string, isAdmin: boolean) => {
+    const supabase = await createClient();
+    const query = supabase.from("exams").select("id, teacher_id, title_block, status");
+    if (isAdmin) {
+      const { data } = await query.eq("id", examId).single();
+      return data;
+    }
+    const { data } = await query.eq("id", examId).eq("teacher_id", userId).single();
+    return data;
+  },
+  ["exam-preview"],
+  { tags: ["exams"], revalidate: 60 }
+);
+
+const getQuestionsForExam = unstable_cache(
+  async (examId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("questions")
+      .select("text, marks, options")
+      .eq("exam_id", examId)
+      .order("order", { ascending: true });
+    return data;
+  },
+  ["exam-questions"],
+  { tags: ["exams"], revalidate: 60 }
+);
+
+const getTemplateForOrg = unstable_cache(
+  async (organisationId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("templates")
+      .select("config")
+      .eq("organisation_id", organisationId)
+      .maybeSingle();
+    return data;
+  },
+  ["org-template"],
+  { tags: ["templates"], revalidate: 300 }
+);
+
 export default async function PreviewPage({ params }: PreviewPageProps) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, user.id);
+  const profile = await getCachedProfile(session.user.id);
 
   if (!profile?.organisation_id) {
     redirect("/onboarding");
   }
 
-  const { data: exam } = await supabase
-    .from("exams")
-    .select("id, teacher_id, title_block, status")
-    .eq("id", id)
-    .single();
+  const isAdmin = profile.role === "admin";
+  const exam = await getExamForPreview(id, session.user.id, isAdmin);
 
-  const canView =
-    exam &&
-    (exam.teacher_id === user.id || profile.role === "admin");
+  if (!exam) {
+    redirect("/exams");
+  }
 
+  const canView = exam.teacher_id === session.user.id || isAdmin;
   if (!canView) {
     redirect("/exams");
   }
 
-  const isOwner = exam!.teacher_id === user.id;
+  const isOwner = exam.teacher_id === session.user.id;
 
-  const { data: questions } = await supabase
-    .from("questions")
-    .select("text, marks, options")
-    .eq("exam_id", id)
-    .order("order", { ascending: true });
-
-  const { data: template } = await supabase
-    .from("templates")
-    .select("config")
-    .eq("organisation_id", profile.organisation_id)
-    .maybeSingle();
+  const [questions, template] = await Promise.all([
+    getQuestionsForExam(id),
+    getTemplateForOrg(profile.organisation_id),
+  ]);
 
   const config = normalizeTemplateConfig(template?.config);
 
@@ -68,7 +101,7 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
     }
   }
 
-  const rawTitleBlock = (exam!.title_block ?? {}) as Record<string, string>;
+  const rawTitleBlock = (exam.title_block ?? {}) as Record<string, string>;
 
   const previewExam: PreviewExam = {
     heading: rawTitleBlock.term

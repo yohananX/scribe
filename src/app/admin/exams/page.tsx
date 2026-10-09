@@ -1,20 +1,67 @@
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { AdminExamsBoard, type BoardExam } from "@/components/admin/AdminExamsBoard";
-import { getProfile } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
+import { getCachedProfile } from "@/lib/profile";
+
+const getAdminExams = unstable_cache(
+  async (orgId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("exams")
+      .select("id, teacher_id, title_block, status, created_at")
+      .eq("organisation_id", orgId)
+      .order("created_at", { ascending: false });
+    return data;
+  },
+  ["admin-exams"],
+  { tags: ["exams"], revalidate: 60 }
+);
+
+const getOrgMembers = unstable_cache(
+  async (orgId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .eq("organisation_id", orgId);
+    return data;
+  },
+  ["org-members"],
+  { tags: ["profiles"], revalidate: 300 }
+);
+
+const getExamPages = unstable_cache(
+  async (orgId: string) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("exams")
+      .select("id")
+      .eq("organisation_id", orgId);
+    
+    if (!data?.length) return [];
+    
+    const examIds = data.map(e => e.id);
+    const { data: pages } = await supabase
+      .from("exam_pages")
+      .select("exam_id")
+      .in("exam_id", examIds);
+    return pages;
+  },
+  ["exam-pages"],
+  { tags: ["exams"], revalidate: 60 }
+);
 
 export default async function AdminExamsPage() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, user.id);
+  const profile = await getCachedProfile(session.user.id);
 
   if (!profile?.organisation_id || profile.role !== "admin") {
     redirect("/dashboard");
@@ -22,32 +69,25 @@ export default async function AdminExamsPage() {
 
   const orgId = profile.organisation_id;
 
-  const [examsResult, membersResult, pagesResult] = await Promise.all([
-    supabase
-      .from("exams")
-      .select("id, teacher_id, title_block, status, created_at")
-      .eq("organisation_id", orgId)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("profiles")
-      .select("id, full_name, email")
-      .eq("organisation_id", orgId),
-    supabase.from("exam_pages").select("exam_id"),
+  const [examsData, membersData, pagesData] = await Promise.all([
+    getAdminExams(orgId),
+    getOrgMembers(orgId),
+    getExamPages(orgId),
   ]);
 
   const teacherNames = new Map<string, string>();
 
-  for (const member of membersResult.data ?? []) {
+  for (const member of membersData ?? []) {
     teacherNames.set(member.id, member.full_name || member.email);
   }
 
   const pageCounts = new Map<string, number>();
 
-  for (const page of pagesResult.data ?? []) {
+  for (const page of pagesData ?? []) {
     pageCounts.set(page.exam_id, (pageCounts.get(page.exam_id) ?? 0) + 1);
   }
 
-  const exams: BoardExam[] = (examsResult.data ?? []).map((exam) => {
+  const exams: BoardExam[] = (examsData ?? []).map((exam) => {
     const titleBlock = (exam.title_block ?? {}) as Record<string, string>;
     const className = titleBlock.class?.trim() || "Unassigned";
 
