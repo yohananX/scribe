@@ -5,7 +5,7 @@ import { PrintButton } from "@/components/exams/PrintButton";
 import { createClient } from "@/lib/supabase/server";
 import { getCachedProfile } from "@/lib/profile";
 import { normalizeTemplateConfig } from "@/lib/template";
-import type { PreviewExam } from "@/components/template/sampleExam";
+import type { PreviewExam, PreviewBlock } from "@/components/template/sampleExam";
 
 type PreviewPageProps = {
   params: Promise<{ id: string }>;
@@ -14,7 +14,7 @@ type PreviewPageProps = {
 const getExamForPreview = unstable_cache(
   async (examId: string, userId: string, isAdmin: boolean) => {
     const supabase = await createClient();
-    const query = supabase.from("exams").select("id, teacher_id, title_block, status");
+    const query = supabase.from("exams").select("id, teacher_id, title_block, status, structure");
     if (isAdmin) {
       const { data } = await query.eq("id", examId).single();
       return data;
@@ -23,20 +23,6 @@ const getExamForPreview = unstable_cache(
     return data;
   },
   ["exam-preview"],
-  { tags: ["exams"], revalidate: 60 }
-);
-
-const getQuestionsForExam = unstable_cache(
-  async (examId: string) => {
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("questions")
-      .select("text, marks, options")
-      .eq("exam_id", examId)
-      .order("order", { ascending: true });
-    return data;
-  },
-  ["exam-questions"],
   { tags: ["exams"], revalidate: 60 }
 );
 
@@ -53,6 +39,72 @@ const getTemplateForOrg = unstable_cache(
   ["org-template"],
   { tags: ["templates"], revalidate: 300 }
 );
+
+function buildPreviewExam(rawTitleBlock: Record<string, string>, structure: unknown[]): PreviewExam {
+  const blocks: PreviewBlock[] = [];
+
+  for (const block of structure) {
+    const b = block as Record<string, unknown>;
+    switch (b.type) {
+      case "instructions":
+        if (b.text) {
+          blocks.push({ type: "instructions", text: b.text as string });
+        }
+        break;
+      case "section":
+        if (b.title) {
+          blocks.push({
+            type: "section",
+            title: b.title as string,
+            instructions: b.instructions as string | undefined,
+          });
+        }
+        break;
+      case "passage":
+        if (b.content) {
+          blocks.push({
+            type: "passage",
+            title: b.title as string | undefined,
+            content: b.content as string,
+          });
+        }
+        break;
+      case "question":
+        const qText = (b.questionText ?? b.text ?? "") as string;
+        const marks = (b.marks as number | null) ?? 0;
+        const options = (b.options as string[] | undefined)?.filter((o) => o.length > 0);
+        const subparts = (b.subparts as { text: string; marks: number | null }[] | undefined)?.map((s) => ({
+          text: s.text,
+          marks: s.marks ?? 0,
+        }));
+        blocks.push({
+          type: "question",
+          question: {
+            text: qText,
+            marks,
+            options: options?.length ? options : undefined,
+            subparts: subparts?.length ? subparts : undefined,
+          },
+        });
+        break;
+    }
+  }
+
+  return {
+    heading: rawTitleBlock.term
+      ? `${rawTitleBlock.term} Examination`
+      : "Examination",
+    titleBlock: {
+      subject: rawTitleBlock.subject,
+      class: rawTitleBlock.class,
+      term: rawTitleBlock.term,
+      date: rawTitleBlock.date,
+      duration: rawTitleBlock.duration,
+      totalMarks: rawTitleBlock.totalMarks,
+    },
+    blocks,
+  };
+}
 
 export default async function PreviewPage({ params }: PreviewPageProps) {
   const { id } = await params;
@@ -84,10 +136,7 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
 
   const isOwner = exam.teacher_id === session.user.id;
 
-  const [questions, template] = await Promise.all([
-    getQuestionsForExam(id),
-    getTemplateForOrg(profile.organisation_id),
-  ]);
+  const template = await getTemplateForOrg(profile.organisation_id);
 
   const config = normalizeTemplateConfig(template?.config);
 
@@ -102,27 +151,9 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
   }
 
   const rawTitleBlock = (exam.title_block ?? {}) as Record<string, string>;
+  const structure = (exam.structure ?? []) as unknown[];
 
-  const previewExam: PreviewExam = {
-    heading: rawTitleBlock.term
-      ? `${rawTitleBlock.term} Examination`
-      : "Examination",
-    instructions:
-      "Answer all questions. Show all working where required.",
-    titleBlock: {
-      subject: rawTitleBlock.subject,
-      class: rawTitleBlock.class,
-      term: rawTitleBlock.term,
-      date: rawTitleBlock.date,
-      duration: rawTitleBlock.duration,
-      totalMarks: rawTitleBlock.totalMarks,
-    },
-    questions: (questions ?? []).map((question) => ({
-      text: String(question.text ?? ""),
-      marks: Number(question.marks ?? 0),
-      options: question.options?.length ? question.options : undefined,
-    })),
-  };
+  const previewExam = buildPreviewExam(rawTitleBlock, structure);
 
   return (
     <div>

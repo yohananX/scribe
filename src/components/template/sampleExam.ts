@@ -10,11 +10,16 @@ export type PreviewQuestion = {
   subparts?: PreviewSubpart[];
 };
 
+export type PreviewBlock =
+  | { type: "instructions"; text: string }
+  | { type: "section"; title: string; instructions?: string }
+  | { type: "passage"; title?: string; content: string }
+  | { type: "question"; question: PreviewQuestion };
+
 export type PreviewExam = {
   heading: string;
-  instructions: string;
   titleBlock: Partial<Record<TitleBlockLabel, string>>;
-  questions: PreviewQuestion[];
+  blocks: PreviewBlock[];
   pageBreaksAfter?: number[];
 };
 
@@ -28,8 +33,6 @@ type TitleBlockLabel =
 
 export const sampleExam: PreviewExam = {
   heading: "Term 1 Examination",
-  instructions:
-    "Answer all questions. Write your answers in the spaces provided. Show all working where required.",
   titleBlock: {
     subject: "Mathematics",
     class: "Grade 7 – A",
@@ -38,31 +41,48 @@ export const sampleExam: PreviewExam = {
     duration: "1 hour 30 minutes",
     totalMarks: "60",
   },
-  questions: [
+  blocks: [
+    { type: "instructions", text: "Answer all questions. Show all working where required." },
+    { type: "section", title: "Section A", instructions: "Answer all questions in this section." },
     {
-      text: "Which of the following is the correct value of x when 2x + 6 = 14?",
-      marks: 1,
-      options: ["x = 2", "x = 4", "x = 6", "x = 8"],
+      type: "question",
+      question: {
+        text: "Which of the following is the correct value of x when 2x + 6 = 14?",
+        marks: 1,
+        options: ["x = 2", "x = 4", "x = 6", "x = 8"],
+      },
     },
     {
-      text: "Work out the following.",
-      marks: 4,
-      subparts: [
-        { text: "Simplify 3x + 2x − x", marks: 2 },
-        { text: "Solve for y: 3y = 12", marks: 2 },
-      ],
+      type: "question",
+      question: {
+        text: "Work out the following.",
+        marks: 4,
+        subparts: [
+          { text: "Simplify 3x + 2x − x", marks: 2 },
+          { text: "Solve for y: 3y = 12", marks: 2 },
+        ],
+      },
     },
     {
-      text: "The marks below show scores in a spelling test for 20 learners.",
-      marks: 3,
-      subparts: [
-        { text: "Complete the frequency table for this data.", marks: 2 },
-        { text: "How many learners scored 7 or more?", marks: 1 },
-      ],
+      type: "passage",
+      title: "Reading Passage",
+      content:
+        "The Industrial Revolution began in Britain in the late 18th century and spread to other parts of the world. It marked a major turning point in history; almost every aspect of daily life was influenced in some way.",
     },
     {
-      text: "Explain in your own words the difference between the mean and the median of a set of numbers.",
-      marks: 2,
+      type: "question",
+      question: {
+        text: "According to the passage, where did the Industrial Revolution begin?",
+        marks: 2,
+      },
+    },
+    { type: "section", title: "Section B", instructions: "Answer any THREE questions from this section." },
+    {
+      type: "question",
+      question: {
+        text: "Describe the causes and consequences of the French Revolution.",
+        marks: 10,
+      },
     },
   ],
   pageBreaksAfter: [2],

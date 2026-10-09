@@ -79,19 +79,19 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
     }
   }
 
-  const initialBlocks: EditableBlock[] = (exam.structure ?? []).map((block: any) => ({
-    id: block.id,
-    type: block.type,
-    order: block.order,
-    text: block.text,
-    title: block.title,
-    instructions: block.instructions,
-    content: block.content,
-    questionText: block.questionText,
-    marks: block.marks,
-    options: block.options,
-    subparts: block.subparts,
-    pageNumber: block.pageNumber,
+  const initialBlocks: EditableBlock[] = (exam.structure ?? []).map((block: Record<string, unknown>) => ({
+    id: block.id as string,
+    type: block.type as EditableBlock["type"],
+    order: block.order as number,
+    text: block.text as string | undefined,
+    title: block.title as string | undefined,
+    instructions: block.instructions as string | undefined,
+    content: block.content as string | undefined,
+    questionText: block.questionText as string | undefined,
+    marks: (block.marks as number | null) ?? null,
+    options: block.options as string[] | undefined,
+    subparts: block.subparts as EditableBlock["subparts"],
+    pageNumber: block.pageNumber as number | null | undefined,
   }));
 
   const titleFields: TitleBlockField[] = config.titleBlock.fields;

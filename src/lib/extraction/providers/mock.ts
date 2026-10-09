@@ -1,60 +1,97 @@
-import { ExtractionResult, ExtractionService } from "../interface";
+import type { ExtractedBlock, ExtractionResult, ExtractionService } from "../interface";
 
-type MockQuestion = {
-  text: string;
-  marks: number;
-  options?: string[];
-};
-
-const FREE_TEXT: MockQuestion[] = [
-  { text: "Explain the main causes of the French Revolution.", marks: 5 },
-  { text: "Describe the role of water in the life cycle of a plant.", marks: 4 },
-  { text: "What is the difference between a noun and an adjective? Give an example of each.", marks: 3 },
-  { text: "Solve for x: 3(x + 4) = 27. Show all your working.", marks: 4 },
-  { text: "List three ways in which renewable energy benefits the environment.", marks: 3 },
-  { text: "Summarise the main events of the chapter in three short sentences.", marks: 6 },
-];
-
-const WITH_OPTIONS: MockQuestion[] = [
+const mockBlocks: ExtractedBlock[] = [
   {
-    text: "Which of the following is the capital city of France?",
+    type: "instructions",
+    id: "mock-1",
+    order: 1,
+    text: "Answer all questions. Show all working where required.",
+  },
+  {
+    type: "section",
+    id: "mock-2",
+    order: 2,
+    title: "Section A",
+    instructions: "Answer all questions in this section. Each question carries the marks shown.",
+  },
+  {
+    type: "question",
+    id: "mock-3",
+    order: 3,
+    questionText: "Which of the following is the capital city of France?",
     marks: 1,
     options: ["Berlin", "Paris", "Madrid", "Rome"],
+    pageNumber: 1,
   },
   {
-    text: "Choose the correct value of x when 2x + 6 = 14.",
+    type: "question",
+    id: "mock-4",
+    order: 4,
+    questionText: "Work out the following.",
+    marks: 4,
+    subparts: [
+      { text: "a) Simplify 3x + 2x − x", marks: 2 },
+      { text: "b) Solve for y: 3y = 12", marks: 2 },
+    ],
+    pageNumber: 1,
+  },
+  {
+    type: "passage",
+    id: "mock-5",
+    order: 5,
+    title: "Reading Passage",
+    content:
+      "The Industrial Revolution began in Britain in the late 18th century and spread to other parts of the world. It marked a major turning point in history; almost every aspect of daily life was influenced in some way. In particular, average income and population began to exhibit unprecedented sustained growth.",
+    pageNumber: 1,
+  },
+  {
+    type: "question",
+    id: "mock-6",
+    order: 6,
+    questionText: "According to the passage, where did the Industrial Revolution begin?",
+    marks: 2,
+    pageNumber: 1,
+  },
+  {
+    type: "question",
+    id: "mock-7",
+    order: 7,
+    questionText: "Explain in your own words the difference between the mean and the median of a set of numbers.",
+    marks: 2,
+    pageNumber: 1,
+  },
+  {
+    type: "section",
+    id: "mock-8",
+    order: 8,
+    title: "Section B",
+    instructions: "Answer any THREE questions from this section.",
+  },
+  {
+    type: "question",
+    id: "mock-9",
+    order: 9,
+    questionText: "Describe the causes and consequences of the French Revolution.",
+    marks: 10,
+    pageNumber: 2,
+  },
+  {
+    type: "question",
+    id: "mock-10",
+    order: 10,
+    questionText: "Choose the correct value of x when 2x + 6 = 14.",
     marks: 1,
     options: ["x = 2", "x = 4", "x = 6", "x = 8"],
-  },
-  {
-    text: "Which organ pumps blood around the human body?",
-    marks: 1,
-    options: ["Lungs", "Liver", "Heart", "Kidneys"],
+    pageNumber: 2,
   },
 ];
 
 export class MockExtractionProvider implements ExtractionService {
   async extract(imageUris: string[]): Promise<ExtractionResult> {
     const pageCount = Math.max(1, imageUris.length);
-    const questions = [];
-
-    for (let index = 0; index < pageCount; index += 1) {
-      const withOptions = WITH_OPTIONS[index % WITH_OPTIONS.length];
-      const freeText = FREE_TEXT[index % FREE_TEXT.length];
-      const useOptions = index === 0;
-
-      questions.push({
-        id: crypto.randomUUID(),
-        text: useOptions ? withOptions.text : freeText.text,
-        marks: useOptions ? withOptions.marks : freeText.marks,
-        options: useOptions ? withOptions.options : undefined,
-        order: index + 1,
-        pageNumber: index + 1,
-      });
-    }
 
     return {
-      questions,
+      blocks: mockBlocks,
       pagesCount: pageCount,
       provider: "mock",
     };

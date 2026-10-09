@@ -1,14 +1,30 @@
-export interface ExtractedQuestion {
+export interface ExtractedBlock {
+  type: "instructions" | "section" | "passage" | "question";
   id: string;
-  text: string;
+  order: number;
+  // instructions
+  text?: string;
+  // section / passage
+  title?: string;
+  // section
+  instructions?: string;
+  // passage
+  content?: string;
+  // question
+  questionText?: string;
   marks?: number | null;
   options?: string[];
-  order: number;
-  pageNumber: number;
+  subparts?: ExtractedSubpart[];
+  pageNumber?: number | null;
+}
+
+export interface ExtractedSubpart {
+  text: string;
+  marks?: number | null;
 }
 
 export interface ExtractionResult {
-  questions: ExtractedQuestion[];
+  blocks: ExtractedBlock[];
   pagesCount: number;
   provider: string;
 }

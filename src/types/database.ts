@@ -71,3 +71,22 @@ export type EditableQuestion = {
   options: string[];
   order: number;
 };
+
+export type EditableBlock = {
+  id: string;
+  type: "instructions" | "section" | "passage" | "question";
+  order?: number;
+  text?: string;
+  title?: string;
+  instructions?: string;
+  content?: string;
+  questionText?: string;
+  marks?: number | null;
+  options?: string[];
+  subparts?: { text: string; marks: number | null }[];
+  pageNumber?: number | null;
+};
+
+export type ExamWithStructure = Exam & {
+  structure: EditableBlock[];
+};

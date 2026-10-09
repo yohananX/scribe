@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { env } from "@/lib/env";
-import type { ExtractedQuestion, ExtractionResult, ExtractionService } from "../interface";
+import type { ExtractedBlock, ExtractionResult, ExtractionService } from "../interface";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 // Keep under typical serverless action limits (60s). The action also uploads
@@ -9,28 +9,47 @@ const REQUEST_TIMEOUT_MS = 55_000;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [4000, 8000];
 
-const extractedQuestionSchema = z.object({
+const extractedSubpartSchema = z.object({
   text: z.string().trim().min(1).max(4000),
   marks: z.number().int().min(0).max(200).nullable().optional(),
+});
+
+const extractedBlockSchema = z.object({
+  type: z.enum(["instructions", "section", "passage", "question"]),
+  order: z.number().int().min(1),
+  // instructions
+  text: z.string().trim().min(1).max(4000).optional(),
+  // section
+  title: z.string().trim().min(1).max(200).optional(),
+  instructions: z.string().trim().min(1).max(4000).optional(),
+  // passage
+  content: z.string().trim().min(1).max(8000).optional(),
+  // question
+  questionText: z.string().trim().min(1).max(4000).optional(),
+  marks: z.number().int().min(0).max(200).nullable().optional(),
   options: z.array(z.string().trim().max(200)).max(8).nullable().optional(),
+  subparts: z.array(extractedSubpartSchema).max(10).nullable().optional(),
   pageNumber: z.number().int().min(1).nullable().optional(),
 });
 
-const payloadSchema = z.union([
-  z.object({ questions: z.array(extractedQuestionSchema).min(1).max(200) }),
-  z.array(extractedQuestionSchema).min(1).max(200),
-]);
+const payloadSchema = z.object({
+  blocks: z.array(extractedBlockSchema).min(1).max(200),
+});
 
 const SYSTEM_PROMPT = [
-  "You transcribe handwritten school exam pages into structured data.",
-  "Read every page image in order and extract each numbered question.",
-  "Split labelled sub-parts (a, b, c or i, ii, iii) into separate questions,",
-  "prefixing the text with the part label, e.g. \"b) Solve for y: 3y = 12\".",
-  "Copy multiple-choice options verbatim when present.",
-  "Record the marks for a question only when they are visible on the page,",
-  "otherwise use null. Never invent questions, options or marks.",
+  "You transcribe handwritten school exam pages into structured blocks.",
+  "Read every page image in order and extract content as an ordered list of blocks.",
+  "Block types:",
+  '- "instructions": Paper-level or section-level instructions (e.g. "Answer all questions. Show all working.")',
+  '- "section": A section header like "Section A" with optional section instructions',
+  '- "passage": A reading passage / stimulus text (e.g. English comprehension text) that precedes related questions',
+  '- "question": A numbered question with optional marks, MCQ options, and sub-parts',
+  "Preserve the exact visual order from the pages. Do not reorder or invent content.",
+  "For questions: extract text, marks (only if visible), MCQ options verbatim, and sub-parts (a,b,c or i,ii,iii) as subparts array.",
+  "For sub-parts: include text and marks (only if visible). Prefix sub-part labels are kept in the text (e.g. \"a) Solve for x\").",
+  "Record pageNumber only when a block clearly belongs to a specific page; otherwise use null.",
   "Respond with raw JSON only, no markdown fences, no commentary, using exactly this shape:",
-  '{"questions": [{"text": "...", "marks": 5, "options": ["..."] or null, "pageNumber": 1}]}',
+  '{"blocks": [{"type": "question", "order": 1, "questionText": "...", "marks": 5, "options": ["..."], "subparts": [{"text": "a) ...", "marks": 2}], "pageNumber": 1}]}',
 ].join(" ");
 
 function extractJsonPayload(text: string): unknown {
@@ -102,26 +121,34 @@ export class OpenRouterExtractionProvider implements ExtractionService {
       );
     }
 
-    const items = Array.isArray(parsed) ? parsed : parsed.questions;
     const pageCount = imageUris.length;
 
-    const questions: ExtractedQuestion[] = items.map((item, index) => ({
+    const blocks: ExtractedBlock[] = parsed.blocks.map((item, index) => ({
       id: crypto.randomUUID(),
+      type: item.type,
+      order: index + 1,
       text: item.text,
+      title: item.title,
+      instructions: item.instructions,
+      content: item.content,
+      questionText: item.questionText,
       marks: item.marks ?? null,
       options:
         item.options && item.options.length > 0
           ? item.options.filter((option) => option.length > 0)
           : undefined,
-      order: index + 1,
+      subparts: item.subparts?.map((s) => ({
+        text: s.text,
+        marks: s.marks ?? null,
+      })),
       pageNumber:
         item.pageNumber && item.pageNumber >= 1 && item.pageNumber <= pageCount
           ? item.pageNumber
-          : Math.min(pageCount, Math.floor((index * pageCount) / items.length) + 1),
+          : undefined,
     }));
 
     return {
-      questions,
+      blocks,
       pagesCount: pageCount,
       provider: `openrouter:${env.OPENROUTER_VISION_MODEL}`,
     };

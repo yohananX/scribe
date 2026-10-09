@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type DragEvent } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { finalizeExam, saveExam, type ExamActionResult } from "@/app/exams/actions";
 import { Alert } from "@/components/ui/Alert";
@@ -9,46 +9,45 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { TITLE_BLOCK_FIELD_LABELS, type TitleBlockField } from "@/lib/template";
-import type { EditableQuestion } from "@/types/database";
+import type { EditableBlock } from "@/types/database";
 
 type ReviewScreenProps = {
   examId: string;
-  initialQuestions: EditableQuestion[];
+  initialBlocks: EditableBlock[];
   initialTitleBlock: Record<string, string>;
   titleFields: TitleBlockField[];
 };
 
 export function ReviewScreen({
   examId,
-  initialQuestions,
+  initialBlocks,
   initialTitleBlock,
   titleFields,
 }: ReviewScreenProps) {
-  const [questions, setQuestions] = useState<EditableQuestion[]>(initialQuestions);
+  const [blocks, setBlocks] = useState<EditableBlock[]>(initialBlocks);
   const [titleBlock, setTitleBlock] = useState<Record<string, string>>(
     initialTitleBlock
   );
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<ExamActionResult | null>(null);
   const [pending, startTransition] = useTransition();
-  const dragIndex = useRef<number | null>(null);
 
   function markDirty() {
     setDirty(true);
     setSaveState(null);
   }
 
-  function updateQuestion(id: string, patch: Partial<EditableQuestion>) {
-    setQuestions((prev) =>
-      prev.map((question) =>
-        question.id === id ? { ...question, ...patch } : question
+  function updateBlock(id: string, patch: Partial<EditableBlock>) {
+    setBlocks((prev) =>
+      prev.map((block) =>
+        block.id === id ? { ...block, ...patch } : block
       )
     );
     markDirty();
   }
 
-  function moveQuestionTo(from: number, to: number) {
-    setQuestions((prev) => {
+  function moveBlockTo(from: number, to: number) {
+    setBlocks((prev) => {
       if (from < 0 || from >= prev.length || to < 0 || to >= prev.length)
         return prev;
       if (from === to) return prev;
@@ -60,42 +59,75 @@ export function ReviewScreen({
     markDirty();
   }
 
-  function moveQuestion(index: number, direction: -1 | 1) {
-    moveQuestionTo(index, index + direction);
+  function moveBlock(index: number, direction: -1 | 1) {
+    moveBlockTo(index, index + direction);
   }
 
-  function removeQuestion(id: string) {
-    setQuestions((prev) => prev.filter((question) => question.id !== id));
+  function removeBlock(id: string) {
+    setBlocks((prev) => prev.filter((block) => block.id !== id));
     markDirty();
   }
 
-  function addQuestion() {
-    setQuestions((prev) => [
-      ...prev,
-      {
-        id: `local-${crypto.randomUUID()}`,
-        text: "",
-        marks: null,
-        options: [],
-        order: prev.length + 1,
-      },
-    ]);
+  function addBlock(type: EditableBlock["type"]) {
+    const newBlock: EditableBlock = {
+      id: `local-${crypto.randomUUID()}`,
+      type,
+      text: type === "instructions" ? "" : undefined,
+      title: type === "section" ? "" : undefined,
+      instructions: type === "section" ? "" : undefined,
+      content: type === "passage" ? "" : undefined,
+      questionText: type === "question" ? "" : undefined,
+      marks: type === "question" ? null : undefined,
+      options: type === "question" ? [] : undefined,
+      subparts: type === "question" ? [] : undefined,
+    };
+    setBlocks((prev) => [...prev, newBlock]);
     markDirty();
   }
 
-  function handleDrop(event: DragEvent, targetIndex: number) {
-    event.preventDefault();
-    const from = dragIndex.current;
-    dragIndex.current = null;
-    if (from === null || from === targetIndex) return;
-    moveQuestionTo(from, targetIndex);
+  function updateSubpart(blockId: string, subpartIndex: number, patch: { text?: string; marks?: number | null }) {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || !block.subparts) return block;
+        const newSubparts = [...block.subparts];
+        newSubparts[subpartIndex] = { ...newSubparts[subpartIndex], ...patch };
+        return { ...block, subparts: newSubparts };
+      })
+    );
+    markDirty();
+  }
+
+  function addSubpart(blockId: string) {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId) return block;
+        return {
+          ...block,
+          subparts: [...(block.subparts ?? []), { text: "", marks: null }],
+        };
+      })
+    );
+    markDirty();
+  }
+
+  function removeSubpart(blockId: string, subpartIndex: number) {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || !block.subparts) return block;
+        return {
+          ...block,
+          subparts: block.subparts.filter((_, i) => i !== subpartIndex),
+        };
+      })
+    );
+    markDirty();
   }
 
   const router = useRouter();
 
   function orderedPayload() {
     return {
-      questions: questions.map((q, index) => ({ ...q, order: index + 1 })),
+      blocks: blocks.map((b, index) => ({ ...b, order: index + 1 })),
       titleBlock,
     };
   }
@@ -124,6 +156,9 @@ export function ReviewScreen({
       router.push(`/exams/${examId}/preview`);
     });
   }
+
+  const questionBlocks = blocks.filter((b) => b.type === "question");
+  const nonQuestionBlocks = blocks.filter((b) => b.type !== "question");
 
   return (
     <div>
@@ -175,95 +210,74 @@ export function ReviewScreen({
         </Card>
       </section>
 
+      {/* Non-question blocks: instructions, sections, passages */}
+      {nonQuestionBlocks.length > 0 && (
+        <section className="mt-6">
+          <h2 className="text-lg font-semibold text-neutral-900">Exam structure</h2>
+          <p className="mt-1 text-sm text-neutral-600">
+            These are paper-level instructions, sections, and passages extracted from your photos.
+          </p>
+          <div className="mt-4 flex flex-col gap-3">
+            {nonQuestionBlocks.map((block, index) => (
+              <BlockCard
+                key={block.id}
+                block={block}
+                index={blocks.findIndex((b) => b.id === block.id)}
+                totalBlocks={blocks.length}
+                onUpdate={updateBlock}
+                onMoveUp={() => moveBlock(blocks.findIndex((b) => b.id === block.id), -1)}
+                onMoveDown={() => moveBlock(blocks.findIndex((b) => b.id === block.id), 1)}
+                onRemove={() => removeBlock(block.id)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Questions */}
       <section className="mt-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-neutral-900">Questions</h2>
-          <Button type="button" variant="secondary" size="sm" onClick={addQuestion}>
-            Add question
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => addBlock("question")}>
+              Add question
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => addBlock("instructions")}>
+              Add instructions
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => addBlock("section")}>
+              Add section
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => addBlock("passage")}>
+              Add passage
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-col gap-3">
-          {questions.map((question, index) => (
-            <Card
-              key={question.id}
-              draggable
-              onDragStart={() => {
-                dragIndex.current = index;
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => handleDrop(event, index)}
-              className="cursor-grab active:cursor-grabbing"
-            >
-              <div className="flex flex-col gap-4 p-5">
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex h-8 items-center rounded-full bg-neutral-100 px-3 text-sm font-semibold text-neutral-700">
-                    Question {index + 1}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => moveQuestion(index, -1)}
-                      disabled={index === 0}
-                      className="rounded-lg px-2 py-1 text-sm font-medium text-neutral-600 hover:bg-neutral-100 disabled:opacity-40"
-                    >
-                      Up
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveQuestion(index, 1)}
-                      disabled={index === questions.length - 1}
-                      className="rounded-lg px-2 py-1 text-sm font-medium text-neutral-600 hover:bg-neutral-100 disabled:opacity-40"
-                    >
-                      Down
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeQuestion(question.id)}
-                      className="rounded-lg px-2 py-1 text-sm font-medium text-error-600 hover:bg-red-50"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-
-                <textarea
-                  value={question.text}
-                  onChange={(event) =>
-                    updateQuestion(question.id, { text: event.target.value })
-                  }
-                  rows={2}
-                  placeholder="Question text"
-                  className="rounded-xl border border-neutral-300 bg-white px-4 py-3 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+          {questionBlocks.map((question, questionIndex) => {
+            const globalIndex = blocks.findIndex((b) => b.id === question.id);
+            return (
+              <Card
+                key={question.id}
+                className="cursor-grab active:cursor-grabbing"
+              >
+                <QuestionEditor
+                  question={question}
+                  index={questionIndex}
+                  globalIndex={globalIndex}
+                  totalBlocks={blocks.length}
+                  onUpdate={updateBlock}
+                  onAddSubpart={addSubpart}
+                  onUpdateSubpart={updateSubpart}
+                  onRemoveSubpart={removeSubpart}
+                  onMoveUp={() => moveBlock(globalIndex, -1)}
+                  onMoveDown={() => moveBlock(globalIndex, 1)}
+                  onRemove={() => removeBlock(question.id)}
                 />
-
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <OptionsEditor
-                      options={question.options}
-                      onChange={(options) => updateQuestion(question.id, { options })}
-                    />
-                  </div>
-                  <Input
-                    label="Marks"
-                    type="number"
-                    min={0}
-                    max={200}
-                    value={question.marks ?? ""}
-                    onChange={(event) =>
-                      updateQuestion(question.id, {
-                        marks:
-                          event.target.value === ""
-                            ? null
-                            : Math.max(0, Number(event.target.value)),
-                      })
-                    }
-                    className="w-24"
-                  />
-                </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       </section>
 
@@ -272,7 +286,7 @@ export function ReviewScreen({
           size="lg"
           className="w-full"
           onClick={handleContinue}
-          disabled={pending || questions.length === 0}
+          disabled={pending || questionBlocks.length === 0}
         >
           {pending
             ? "Saving..."
@@ -284,6 +298,285 @@ export function ReviewScreen({
           <p className="mt-2 text-center text-sm text-neutral-500">
             Unsaved changes will be saved before continuing.
           </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BlockCard({
+  block,
+  index,
+  totalBlocks,
+  onUpdate,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+}: {
+  block: EditableBlock;
+  index: number;
+  totalBlocks: number;
+  onUpdate: (id: string, patch: Partial<EditableBlock>) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
+}) {
+  const typeLabels: Record<EditableBlock["type"], string> = {
+    instructions: "Instructions",
+    section: "Section",
+    passage: "Passage",
+    question: "Question",
+  };
+
+  const typeIcons: Record<EditableBlock["type"], string> = {
+    instructions: "📋",
+    section: "📂",
+    passage: "📖",
+    question: "❓",
+  };
+
+  return (
+    <Card className="p-4 border-l-4 border-primary-500 bg-neutral-50">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span className="text-2xl">{typeIcons[block.type]}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-neutral-700">{typeLabels[block.type]}</span>
+              {block.type === "section" && block.title && (
+                <span className="text-sm font-semibold text-neutral-900">: {block.title}</span>
+              )}
+              {block.type === "passage" && block.title && (
+                <span className="text-sm font-semibold text-neutral-900">: {block.title}</span>
+              )}
+            </div>
+            {(block.type === "instructions" && block.text) && (
+              <p className="mt-1 text-sm text-neutral-600 line-clamp-2">{block.text}</p>
+            )}
+            {(block.type === "section" && block.instructions) && (
+              <p className="mt-1 text-sm text-neutral-600 line-clamp-2">{block.instructions}</p>
+            )}
+            {(block.type === "passage" && block.content) && (
+              <p className="mt-1 text-sm text-neutral-600 line-clamp-3">{block.content}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={index === 0}
+            className="rounded-lg px-2 py-1 text-sm font-medium text-neutral-600 hover:bg-neutral-200 disabled:opacity-40"
+          >
+            Up
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={index === totalBlocks - 1}
+            className="rounded-lg px-2 py-1 text-sm font-medium text-neutral-600 hover:bg-neutral-200 disabled:opacity-40"
+          >
+            Down
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-lg px-2 py-1 text-sm font-medium text-error-600 hover:bg-red-50"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        {block.type === "instructions" && (
+          <textarea
+            value={block.text ?? ""}
+            onChange={(e) => onUpdate(block.id, { text: e.target.value })}
+            rows={2}
+            placeholder="Paper-level instructions (e.g. 'Answer all questions...')"
+            className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+          />
+        )}
+        {block.type === "section" && (
+          <div className="flex flex-col gap-2">
+            <Input
+              label="Section title"
+              value={block.title ?? ""}
+              onChange={(e) => onUpdate(block.id, { title: e.target.value })}
+              placeholder="e.g. Section A"
+            />
+            <textarea
+              value={block.instructions ?? ""}
+              onChange={(e) => onUpdate(block.id, { instructions: e.target.value })}
+              rows={2}
+              placeholder="Section instructions (optional)"
+              className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            />
+          </div>
+        )}
+        {block.type === "passage" && (
+          <div className="flex flex-col gap-2">
+            <Input
+              label="Passage title (optional)"
+              value={block.title ?? ""}
+              onChange={(e) => onUpdate(block.id, { title: e.target.value })}
+              placeholder="e.g. Reading Passage"
+            />
+            <textarea
+              value={block.content ?? ""}
+              onChange={(e) => onUpdate(block.id, { content: e.target.value })}
+              rows={4}
+              placeholder="Passage text (comprehension text, case study, etc.)"
+              className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            />
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function QuestionEditor({
+  question,
+  index,
+  globalIndex,
+  totalBlocks,
+  onUpdate,
+  onAddSubpart,
+  onUpdateSubpart,
+  onRemoveSubpart,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+}: {
+  question: EditableBlock;
+  index: number;
+  globalIndex: number;
+  totalBlocks: number;
+  onUpdate: (id: string, patch: Partial<EditableBlock>) => void;
+  onAddSubpart: (blockId: string) => void;
+  onUpdateSubpart: (blockId: string, subpartIndex: number, patch: { text?: string; marks?: number | null }) => void;
+  onRemoveSubpart: (blockId: string, subpartIndex: number) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4 p-5">
+      <div className="flex items-center justify-between">
+        <span className="inline-flex h-8 items-center rounded-full bg-neutral-100 px-3 text-sm font-semibold text-neutral-700">
+          Question {index + 1}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={globalIndex === 0}
+            className="rounded-lg px-2 py-1 text-sm font-medium text-neutral-600 hover:bg-neutral-100 disabled:opacity-40"
+          >
+            Up
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={globalIndex === totalBlocks - 1}
+            className="rounded-lg px-2 py-1 text-sm font-medium text-neutral-600 hover:bg-neutral-100 disabled:opacity-40"
+          >
+            Down
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-lg px-2 py-1 text-sm font-medium text-error-600 hover:bg-red-50"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <textarea
+        value={question.questionText ?? ""}
+        onChange={(event) =>
+          onUpdate(question.id, { questionText: event.target.value })
+        }
+        rows={2}
+        placeholder="Question text"
+        className="rounded-xl border border-neutral-300 bg-white px-4 py-3 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+      />
+
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex-1">
+          <OptionsEditor
+            options={question.options ?? []}
+            onChange={(options) => onUpdate(question.id, { options })}
+          />
+        </div>
+        <Input
+          label="Marks"
+          type="number"
+          min={0}
+          max={200}
+          value={question.marks ?? ""}
+          onChange={(event) =>
+            onUpdate(question.id, {
+              marks:
+                event.target.value === ""
+                  ? null
+                  : Math.max(0, Number(event.target.value)),
+            })
+          }
+          className="w-24"
+        />
+      </div>
+
+      {/* Subparts */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-neutral-700">Sub-parts</span>
+          <Button type="button" variant="secondary" size="sm" onClick={() => onAddSubpart(question.id)}>
+            Add sub-part
+          </Button>
+        </div>
+        {(question.subparts ?? []).length > 0 && (
+          <div className="flex flex-col gap-2">
+            {question.subparts!.map((subpart, subpartIndex) => (
+              <div key={subpartIndex} className="flex items-start gap-2 p-3 rounded-lg bg-neutral-50 border border-neutral-200">
+                <span className="w-6 text-sm font-medium text-neutral-600 shrink-0">
+                  {String.fromCharCode(97 + subpartIndex)})
+                </span>
+                <div className="flex-1 flex flex-col gap-2">
+                  <input
+                    type="text"
+                    value={subpart.text}
+                    onChange={(e) => onUpdateSubpart(question.id, subpartIndex, { text: e.target.value })}
+                    placeholder="Sub-part text"
+                    className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Input
+                      label="Marks"
+                      type="number"
+                      min={0}
+                      max={200}
+                      value={subpart.marks ?? ""}
+                      onChange={(e) => onUpdateSubpart(question.id, subpartIndex, {
+                        marks: e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
+                      })}
+                      className="w-20"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onRemoveSubpart(question.id, subpartIndex)}
+                      className="text-sm text-error-600 hover:text-error-700"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

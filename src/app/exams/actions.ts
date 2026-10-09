@@ -15,16 +15,31 @@ export type ExamActionResult = {
   message?: string;
 };
 
-const editableQuestionSchema = z.object({
+const editableBlockSchema = z.object({
   id: z.string().min(1),
-  text: z.string().min(1, "Question text cannot be empty.").max(4000),
-  marks: z.number().int().min(0).max(200).nullable(),
-  options: z.array(z.string().max(200)).max(8),
+  type: z.enum(["instructions", "section", "passage", "question"]),
   order: z.number().int().min(1).optional(),
+  text: z.string().max(4000).optional(),
+  title: z.string().max(200).optional(),
+  instructions: z.string().max(4000).optional(),
+  content: z.string().max(8000).optional(),
+  questionText: z.string().max(4000).optional(),
+  marks: z.number().int().min(0).max(200).nullable().optional(),
+  options: z.array(z.string().max(200)).max(8).optional(),
+  subparts: z
+    .array(
+      z.object({
+        text: z.string().max(4000),
+        marks: z.number().int().min(0).max(200).nullable().optional(),
+      })
+    )
+    .max(10)
+    .optional(),
+  pageNumber: z.number().int().min(1).nullable().optional(),
 });
 
 const saveExamSchema = z.object({
-  questions: z.array(editableQuestionSchema).max(200),
+  blocks: z.array(editableBlockSchema).max(200),
   titleBlock: z.record(z.string(), z.string().max(120)),
 });
 
@@ -164,25 +179,57 @@ export async function createExamFromPages(
     const provider = getExtractionProvider();
     const result = await provider.extract(imageUris);
 
-    if (!result.questions || result.questions.length === 0) {
+    if (!result.blocks || result.blocks.length === 0) {
       throw new Error(
-        "No questions were found on those pages. Try sharper photos with good lighting."
+        "No content was found on those pages. Try sharper photos with good lighting."
       );
     }
 
-    const { error: insertError } = await supabase.from("questions").insert(
-      result.questions.map((question) => ({
-        exam_id: examId,
-        text: question.text,
-        marks: question.marks ?? null,
-        options: question.options ?? [],
-        order: question.order,
-        page_number: question.pageNumber,
-      }))
-    );
+    // Save structured blocks to exams.structure
+    const structureJson = result.blocks.map((block) => ({
+      type: block.type,
+      id: block.id,
+      order: block.order,
+      text: block.text,
+      title: block.title,
+      instructions: block.instructions,
+      content: block.content,
+      questionText: block.questionText,
+      marks: block.marks ?? null,
+      options: block.options,
+      subparts: block.subparts,
+      pageNumber: block.pageNumber,
+    }));
 
-    if (insertError) {
-      throw insertError;
+    const { error: updateStructureError } = await supabase
+      .from("exams")
+      .update({ structure: structureJson })
+      .eq("id", examId);
+
+    if (updateStructureError) {
+      throw updateStructureError;
+    }
+
+    // Also save questions to questions table for backward compatibility and search
+    const questionsToInsert = result.blocks
+      .filter((block) => block.type === "question")
+      .map((block, index) => ({
+        exam_id: examId,
+        text: block.questionText ?? block.text ?? "",
+        marks: block.marks ?? null,
+        options: block.options ?? [],
+        order: block.order,
+        page_number: block.pageNumber,
+      }));
+
+    if (questionsToInsert.length > 0) {
+      const { error: insertError } = await supabase
+        .from("questions")
+        .insert(questionsToInsert);
+
+      if (insertError) {
+        throw insertError;
+      }
     }
   } catch (error) {
     if (uploadedPaths.length > 0) {
@@ -209,35 +256,65 @@ export async function saveExam(
   if (!parsed.success) {
     return {
       ok: false,
-      message: "Some exam details are not valid. Check the questions and try again.",
+      message: "Some exam details are not valid. Check the content and try again.",
     };
   }
 
   const { supabase, exam } = await requireExamOwner(examId);
 
   // Server is the source of truth for order: display position wins.
-  const normalized = parsed.data.questions.map((question, index) => ({
-    ...question,
-    text: question.text.trim(),
-    options: question.options.map((o) => o.trim()).filter((o) => o.length > 0),
+  const normalized = parsed.data.blocks.map((block, index) => ({
+    ...block,
     order: index + 1,
+    text: block.text?.trim(),
+    title: block.title?.trim(),
+    instructions: block.instructions?.trim(),
+    content: block.content?.trim(),
+    questionText: block.questionText?.trim(),
+    marks: block.marks ?? null,
+    options: block.options?.map((o) => o.trim()).filter((o) => o.length > 0),
+    subparts: block.subparts?.map((s) => ({
+      text: s.text.trim(),
+      marks: s.marks ?? null,
+    })),
   }));
 
-  for (const q of normalized) {
-    if (!q.text) {
+  // Validate question blocks have text
+  for (const block of normalized) {
+    if (block.type === "question" && !block.questionText) {
       return {
         ok: false,
         message: "Question text cannot be empty. Fill every question or delete it.",
       };
     }
+    if (block.type === "instructions" && !block.text) {
+      return {
+        ok: false,
+        message: "Instructions text cannot be empty.",
+      };
+    }
+    if (block.type === "section" && !block.title) {
+      return {
+        ok: false,
+        message: "Section title cannot be empty.",
+      };
+    }
+    if (block.type === "passage" && !block.content) {
+      return {
+        ok: false,
+        message: "Passage content cannot be empty.",
+      };
+    }
   }
 
   // 1) Try atomic RPC (requires supabase/migrations/20260927001 applied).
+  // Extract just questions for the RPC (backward compatibility)
+  const questionBlocks = normalized.filter((b) => b.type === "question");
   const rpcPayload = {
     p_exam_id: exam.id,
     p_title_block: parsed.data.titleBlock,
-    p_questions: normalized.map((q) => ({
-      text: q.text,
+    p_questions: questionBlocks.map((q) => ({
+      text: q.questionText ?? q.text ?? "",
       marks: q.marks,
       options: q.options,
     })),
@@ -249,6 +326,27 @@ export async function saveExam(
   );
 
   if (!rpcError) {
+    // Also update the structure column
+    const structureJson = normalized.map((block) => ({
+      type: block.type,
+      id: block.id,
+      order: block.order,
+      text: block.text,
+      title: block.title,
+      instructions: block.instructions,
+      content: block.content,
+      questionText: block.questionText,
+      marks: block.marks ?? null,
+      options: block.options,
+      subparts: block.subparts,
+      pageNumber: block.pageNumber,
+    }));
+
+    await supabase
+      .from("exams")
+      .update({ structure: structureJson })
+      .eq("id", exam.id);
+
     revalidatePath(`/exams/${examId}/review`);
     revalidatePath(`/exams/${examId}/preview`);
     revalidatePath("/exams");
@@ -270,7 +368,20 @@ export async function saveExam(
 async function differentialSave(
   supabase: Awaited<ReturnType<typeof createClient>>,
   examId: string,
-  questions: { id: string; text: string; marks: number | null; options: string[]; order: number }[],
+  blocks: {
+    id: string;
+    type: "instructions" | "section" | "passage" | "question";
+    text?: string;
+    title?: string;
+    instructions?: string;
+    content?: string;
+    questionText?: string;
+    marks: number | null;
+    options?: string[];
+    subparts?: { text: string; marks: number | null }[];
+    order: number;
+    pageNumber?: number | null;
+  }[],
   titleBlock: Record<string, string>
 ): Promise<ExamActionResult> {
   // Insert new rows first so a failure leaves existing data intact.
@@ -280,14 +391,15 @@ async function differentialSave(
     .eq("exam_id", examId);
 
   const existingIds = new Set((existing ?? []).map((r) => r.id as string));
+  const questionBlocks = blocks.filter((b) => b.type === "question");
   const incomingIds = new Set(
-    questions.filter((q) => !q.id.startsWith("local-")).map((q) => q.id)
+    questionBlocks.filter((q) => !q.id.startsWith("local-")).map((q) => q.id)
   );
 
-  const toInsert = questions.filter(
+  const toInsert = questionBlocks.filter(
     (q) => q.id.startsWith("local-") || !existingIds.has(q.id)
   );
-  const toUpdate = questions.filter(
+  const toUpdate = questionBlocks.filter(
     (q) => !q.id.startsWith("local-") && existingIds.has(q.id)
   );
   const toDelete = [...existingIds].filter((id) => !incomingIds.has(id));
@@ -296,10 +408,11 @@ async function differentialSave(
     const { error } = await supabase.from("questions").insert(
       toInsert.map((q) => ({
         exam_id: examId,
-        text: q.text,
+        text: q.questionText ?? q.text ?? "",
         marks: q.marks,
         options: q.options,
         order: q.order,
+        page_number: q.pageNumber,
       }))
     );
     if (error) return { ok: false, message: getFriendlyMessage(error) };
@@ -308,7 +421,13 @@ async function differentialSave(
   for (const q of toUpdate) {
     const { error } = await supabase
       .from("questions")
-      .update({ text: q.text, marks: q.marks, options: q.options, order: q.order })
+      .update({
+        text: q.questionText ?? q.text ?? "",
+        marks: q.marks,
+        options: q.options,
+        order: q.order,
+        page_number: q.pageNumber,
+      })
       .eq("id", q.id)
       .eq("exam_id", examId);
     if (error) return { ok: false, message: getFriendlyMessage(error) };
@@ -323,10 +442,27 @@ async function differentialSave(
     if (error) return { ok: false, message: getFriendlyMessage(error) };
   }
 
+  // Update structure column with all blocks
+  const structureJson = blocks.map((block) => ({
+    type: block.type,
+    id: block.id,
+    order: block.order,
+    text: block.text,
+    title: block.title,
+    instructions: block.instructions,
+    content: block.content,
+    questionText: block.questionText,
+    marks: block.marks ?? null,
+    options: block.options,
+    subparts: block.subparts,
+    pageNumber: block.pageNumber,
+  }));
+
   const { error: updateError } = await supabase
     .from("exams")
     .update({
       title_block: titleBlock,
+      structure: structureJson,
       updated_at: new Date().toISOString(),
     })
     .eq("id", examId);
