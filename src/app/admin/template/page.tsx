@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import { TemplateEditor } from "@/components/template/TemplateEditor";
 import { createClient } from "@/lib/supabase/server";
-import { getCachedProfile } from "@/lib/profile";
+import { getProfile } from "@/lib/profile";
 import { normalizeTemplateConfig, type TemplateConfig } from "@/lib/template";
 
 const getOrgName = unstable_cache(
@@ -38,7 +38,7 @@ export default async function TemplatePage() {
     redirect("/login");
   }
 
-  const profile = await getCachedProfile(session.user.id);
+  const profile = await getProfile(supabase, session.user.id);
 
   if (!profile?.organisation_id || profile.role !== "admin") {
     redirect("/dashboard");

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { createClient } from "@/lib/supabase/server";
+import { getProfile } from "@/lib/profile";
 import type { Exam } from "@/types/database";
 
 const getTeacherExams = unstable_cache(
@@ -27,6 +28,9 @@ export default async function ExamsPage() {
   if (!session?.user) {
     redirect("/login");
   }
+
+  const profile = await getProfile(supabase, session.user.id);
+  if (!profile?.organisation_id) redirect("/onboarding");
 
   const exams = await getTeacherExams(session.user.id);
 

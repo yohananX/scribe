@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { PageCapture } from "@/components/exams/PageCapture";
 import { createClient } from "@/lib/supabase/server";
-import { getCachedProfile } from "@/lib/profile";
+import { getProfile } from "@/lib/profile";
 
 export default async function NewExamPage() {
   const supabase = await createClient();
@@ -12,7 +12,7 @@ export default async function NewExamPage() {
     redirect("/login");
   }
 
-  const profile = await getCachedProfile(session.user.id);
+  const profile = await getProfile(supabase, session.user.id);
 
   if (!profile?.organisation_id) {
     redirect("/onboarding");

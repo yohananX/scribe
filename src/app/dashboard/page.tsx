@@ -3,7 +3,7 @@ import Link from "next/link";
 import { unstable_cache } from "next/cache";
 import { Badge } from "@/components/ui/Badge";
 import { createClient } from "@/lib/supabase/server";
-import { getCachedProfile } from "@/lib/profile";
+import { getProfile } from "@/lib/profile";
 import type { Exam } from "@/types/database";
 
 const getExamsForOrg = unstable_cache(
@@ -52,7 +52,7 @@ export default async function DashboardPage() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.user) redirect("/login");
 
-  const profile = await getCachedProfile(session.user.id);
+  const profile = await getProfile(supabase, session.user.id);
   if (!profile?.organisation_id) redirect("/onboarding");
 
   const isAdmin = profile.role === "admin";

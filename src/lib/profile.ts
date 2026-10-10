@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { unstable_cache } from "next/cache";
 import type { Profile } from "@/types/database";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
@@ -54,18 +53,3 @@ export async function getProfile(supabase: SupabaseClient, userId: string) {
 
   return (data ?? null) as Profile | null;
 }
-
-// Cached version for use in server components
-export const getCachedProfile = unstable_cache(
-  async (userId: string) => {
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, email, full_name, organisation_id, role")
-      .eq("id", userId)
-      .single();
-    return (data ?? null) as Profile | null;
-  },
-  ["profile"],
-  { tags: ["profile"], revalidate: 60 }
-);

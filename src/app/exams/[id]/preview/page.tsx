@@ -3,7 +3,7 @@ import { unstable_cache } from "next/cache";
 import { ExamPreview } from "@/components/template/ExamPreview";
 import { PrintButton } from "@/components/exams/PrintButton";
 import { createClient } from "@/lib/supabase/server";
-import { getCachedProfile } from "@/lib/profile";
+import { getProfile } from "@/lib/profile";
 import { normalizeTemplateConfig } from "@/lib/template";
 import type { PreviewExam, PreviewBlock } from "@/components/template/sampleExam";
 
@@ -116,7 +116,7 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
     redirect("/login");
   }
 
-  const profile = await getCachedProfile(session.user.id);
+  const profile = await getProfile(supabase, session.user.id);
 
   if (!profile?.organisation_id) {
     redirect("/onboarding");

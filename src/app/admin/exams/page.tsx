@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { unstable_cache } from "next/cache";
 import { AdminExamsBoard, type BoardExam } from "@/components/admin/AdminExamsBoard";
 import { createClient } from "@/lib/supabase/server";
-import { getCachedProfile } from "@/lib/profile";
+import { getProfile } from "@/lib/profile";
 
 const getAdminExams = unstable_cache(
   async (orgId: string) => {
@@ -61,7 +61,7 @@ export default async function AdminExamsPage() {
     redirect("/login");
   }
 
-  const profile = await getCachedProfile(session.user.id);
+  const profile = await getProfile(supabase, session.user.id);
 
   if (!profile?.organisation_id || profile.role !== "admin") {
     redirect("/dashboard");
