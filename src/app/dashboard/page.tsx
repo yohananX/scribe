@@ -1,28 +1,25 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import type { Exam } from "@/types/database";
 
-const getExamsForOrg = unstable_cache(
-  async (organisationId: string, userId: string, isAdmin: boolean) => {
-    const supabase = await createClient();
+// Request-scoped memoization (per-request deduplication)
+const getExamsForOrg = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, organisationId: string, userId: string, isAdmin: boolean) => {
     const query = supabase.from("exams").select("id, title_block, status, created_at, teacher_id");
     const filteredQuery = isAdmin
       ? query.eq("organisation_id", organisationId)
       : query.eq("teacher_id", userId);
     const { data } = await filteredQuery.order("created_at", { ascending: false }).limit(5);
     return (data ?? []) as Partial<Exam>[];
-  },
-  ["exams-recent"],
-  { tags: ["exams"], revalidate: 60 }
+  }
 );
 
-const getExamCounts = unstable_cache(
-  async (organisationId: string, userId: string, isAdmin: boolean) => {
-    const supabase = await createClient();
+const getExamCounts = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, organisationId: string, userId: string, isAdmin: boolean) => {
     const query = supabase.from("exams").select("id", { count: "exact", head: true });
     const filteredQuery = isAdmin
       ? query.eq("organisation_id", organisationId)
@@ -32,36 +29,31 @@ const getExamCounts = unstable_cache(
       filteredQuery.eq("status", "draft"),
     ]);
     return { total: total ?? 0, drafts: drafts ?? 0 };
-  },
-  ["exams-counts"],
-  { tags: ["exams"], revalidate: 60 }
+  }
 );
 
-const getOrgName = unstable_cache(
-  async (organisationId: string) => {
-    const supabase = await createClient();
-    const { data } = await supabase.from("organisations").select("name").eq("id", organisationId).maybeSingle();
-    return data?.name ?? "Your school";
-  },
-  ["org-name"],
-  { tags: ["organisation"], revalidate: 300 }
-);
+// Org name is shared across users in the same org - can use persistent cache
+// But we can't pass supabase client (circular refs). Just fetch directly - it's fast.
+async function getOrgName(supabase: Awaited<ReturnType<typeof createClient>>, organisationId: string) {
+  const { data } = await supabase.from("organisations").select("name").eq("id", organisationId).maybeSingle();
+  return data?.name ?? "Your school";
+}
 
 export default async function DashboardPage() {
   const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user) redirect("/login");
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-  const profile = await getProfile(supabase, session.user.id);
+  const profile = await getProfile(supabase, user.id);
   if (!profile?.organisation_id) redirect("/onboarding");
 
   const isAdmin = profile.role === "admin";
   const organisationId = profile.organisation_id!;
 
   const [exams, { total, drafts }, schoolName] = await Promise.all([
-    getExamsForOrg(organisationId, profile.id, isAdmin),
-    getExamCounts(organisationId, profile.id, isAdmin),
-    getOrgName(organisationId),
+    getExamsForOrg(supabase, organisationId, profile.id, isAdmin),
+    getExamCounts(supabase, organisationId, profile.id, isAdmin),
+    getOrgName(supabase, organisationId),
   ]);
 
   return (

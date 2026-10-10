@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { revokeInvitation, removeTeacher } from "@/app/actions";
 import { InviteTeacherForm } from "@/components/admin/InviteTeacherForm";
 import { Badge } from "@/components/ui/Badge";
@@ -9,9 +9,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import type { Invitation, Profile } from "@/types/database";
 
-const getPendingInvitations = unstable_cache(
-  async (orgId: string) => {
-    const supabase = await createClient();
+const getPendingInvitations = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, orgId: string) => {
     const { data } = await supabase
       .from("invitations")
       .select("*")
@@ -19,14 +18,11 @@ const getPendingInvitations = unstable_cache(
       .eq("status", "pending")
       .order("created_at", { ascending: true });
     return data;
-  },
-  ["org-invitations"],
-  { tags: ["invitations"], revalidate: 60 }
+  }
 );
 
-const getTeachers = unstable_cache(
-  async (orgId: string) => {
-    const supabase = await createClient();
+const getTeachers = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, orgId: string) => {
     const { data } = await supabase
       .from("profiles")
       .select("id, email, full_name")
@@ -34,21 +30,19 @@ const getTeachers = unstable_cache(
       .eq("role", "teacher")
       .order("email", { ascending: true });
     return data;
-  },
-  ["org-teachers"],
-  { tags: ["profiles"], revalidate: 300 }
+  }
 );
 
 export default async function TeachersPage() {
   const supabase = await createClient();
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session?.user) {
+  if (!user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, session.user.id);
+  const profile = await getProfile(supabase, user.id);
 
   if (!profile?.organisation_id || profile.role !== "admin") {
     redirect("/dashboard");
@@ -57,8 +51,8 @@ export default async function TeachersPage() {
   const orgId = profile.organisation_id;
 
   const [invitations, teachers] = await Promise.all([
-    getPendingInvitations(orgId),
-    getTeachers(orgId),
+    getPendingInvitations(supabase, orgId),
+    getTeachers(supabase, orgId),
   ]);
 
   return (

@@ -6,13 +6,13 @@ import { getProfile } from "@/lib/profile";
 export default async function NewExamPage() {
   const supabase = await createClient();
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session?.user) {
+  if (!user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, session.user.id);
+  const profile = await getProfile(supabase, user.id);
 
   if (!profile?.organisation_id) {
     redirect("/onboarding");

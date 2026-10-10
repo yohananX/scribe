@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { ExamPreview } from "@/components/template/ExamPreview";
 import { PrintButton } from "@/components/exams/PrintButton";
 import { createClient } from "@/lib/supabase/server";
@@ -11,9 +11,8 @@ type PreviewPageProps = {
   params: Promise<{ id: string }>;
 };
 
-const getExamForPreview = unstable_cache(
-  async (examId: string, userId: string, isAdmin: boolean) => {
-    const supabase = await createClient();
+const getExamForPreview = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, examId: string, userId: string, isAdmin: boolean) => {
     const query = supabase.from("exams").select("id, teacher_id, title_block, status, structure");
     if (isAdmin) {
       const { data } = await query.eq("id", examId).single();
@@ -21,23 +20,18 @@ const getExamForPreview = unstable_cache(
     }
     const { data } = await query.eq("id", examId).eq("teacher_id", userId).single();
     return data;
-  },
-  ["exam-preview"],
-  { tags: ["exams"], revalidate: 60 }
+  }
 );
 
-const getTemplateForOrg = unstable_cache(
-  async (organisationId: string) => {
-    const supabase = await createClient();
+const getTemplateForOrg = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, organisationId: string) => {
     const { data } = await supabase
       .from("templates")
       .select("config")
       .eq("organisation_id", organisationId)
       .maybeSingle();
     return data;
-  },
-  ["org-template"],
-  { tags: ["templates"], revalidate: 300 }
+  }
 );
 
 function buildPreviewExam(rawTitleBlock: Record<string, string>, structure: unknown[]): PreviewExam {
@@ -110,33 +104,33 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session?.user) {
+  if (!user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, session.user.id);
+  const profile = await getProfile(supabase, user.id);
 
   if (!profile?.organisation_id) {
     redirect("/onboarding");
   }
 
   const isAdmin = profile.role === "admin";
-  const exam = await getExamForPreview(id, session.user.id, isAdmin);
+  const exam = await getExamForPreview(supabase, id, user.id, isAdmin);
 
   if (!exam) {
     redirect("/exams");
   }
 
-  const canView = exam.teacher_id === session.user.id || isAdmin;
+  const canView = exam.teacher_id === user.id || isAdmin;
   if (!canView) {
     redirect("/exams");
   }
 
-  const isOwner = exam.teacher_id === session.user.id;
+  const isOwner = exam.teacher_id === user.id;
 
-  const template = await getTemplateForOrg(profile.organisation_id);
+  const template = await getTemplateForOrg(supabase, profile.organisation_id);
 
   const config = normalizeTemplateConfig(template?.config);
 

@@ -5,10 +5,10 @@ import { getProfile } from "@/lib/profile";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user) redirect("/login");
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-  const profile = await getProfile(supabase, session.user.id);
+  const profile = await getProfile(supabase, user.id);
   if (!profile?.organisation_id) redirect("/onboarding");
 
   return <AuthenticatedShell profile={profile}>{children}</AuthenticatedShell>;

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { ReviewScreen } from "@/components/exams/ReviewScreen";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
@@ -14,9 +14,8 @@ type ReviewPageProps = {
   params: Promise<{ id: string }>;
 };
 
-const getExamForReview = unstable_cache(
-  async (examId: string, userId: string) => {
-    const supabase = await createClient();
+const getExamForReview = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, examId: string, userId: string) => {
     const { data } = await supabase
       .from("exams")
       .select("id, teacher_id, title_block, structure")
@@ -24,47 +23,42 @@ const getExamForReview = unstable_cache(
       .eq("teacher_id", userId)
       .single();
     return data;
-  },
-  ["exam-review"],
-  { tags: ["exams"], revalidate: 60 }
+  }
 );
 
-const getTemplateForOrg = unstable_cache(
-  async (organisationId: string) => {
-    const supabase = await createClient();
+const getTemplateForOrg = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, organisationId: string) => {
     const { data } = await supabase
       .from("templates")
       .select("config")
       .eq("organisation_id", organisationId)
       .maybeSingle();
     return data;
-  },
-  ["org-template"],
-  { tags: ["templates"], revalidate: 300 }
+  }
 );
 
 export default async function ReviewPage({ params }: ReviewPageProps) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session?.user) {
+  if (!user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, session.user.id);
+  const profile = await getProfile(supabase, user.id);
   if (!profile?.organisation_id) {
     redirect("/onboarding");
   }
 
-  const exam = await getExamForReview(id, session.user.id);
+  const exam = await getExamForReview(supabase, id, user.id);
   if (!exam) {
     redirect("/exams");
   }
 
   const [template] = await Promise.all([
-    getTemplateForOrg(profile.organisation_id),
+    getTemplateForOrg(supabase, profile.organisation_id),
   ]);
 
   const config = normalizeTemplateConfig(template?.config);

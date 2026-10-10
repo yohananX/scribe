@@ -1,39 +1,33 @@
 import { redirect } from "next/navigation";
-import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { AdminExamsBoard, type BoardExam } from "@/components/admin/AdminExamsBoard";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 
-const getAdminExams = unstable_cache(
-  async (orgId: string) => {
-    const supabase = await createClient();
+// Request-scoped memoization for org-scoped data
+const getAdminExams = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, orgId: string) => {
     const { data } = await supabase
       .from("exams")
       .select("id, teacher_id, title_block, status, created_at")
       .eq("organisation_id", orgId)
       .order("created_at", { ascending: false });
     return data;
-  },
-  ["admin-exams"],
-  { tags: ["exams"], revalidate: 60 }
+  }
 );
 
-const getOrgMembers = unstable_cache(
-  async (orgId: string) => {
-    const supabase = await createClient();
+const getOrgMembers = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, orgId: string) => {
     const { data } = await supabase
       .from("profiles")
       .select("id, full_name, email")
       .eq("organisation_id", orgId);
     return data;
-  },
-  ["org-members"],
-  { tags: ["profiles"], revalidate: 300 }
+  }
 );
 
-const getExamPages = unstable_cache(
-  async (orgId: string) => {
-    const supabase = await createClient();
+const getExamPages = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, orgId: string) => {
     const { data } = await supabase
       .from("exams")
       .select("id")
@@ -47,21 +41,19 @@ const getExamPages = unstable_cache(
       .select("exam_id")
       .in("exam_id", examIds);
     return pages;
-  },
-  ["exam-pages"],
-  { tags: ["exams"], revalidate: 60 }
+  }
 );
 
 export default async function AdminExamsPage() {
   const supabase = await createClient();
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session?.user) {
+  if (!user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, session.user.id);
+  const profile = await getProfile(supabase, user.id);
 
   if (!profile?.organisation_id || profile.role !== "admin") {
     redirect("/dashboard");
@@ -70,9 +62,9 @@ export default async function AdminExamsPage() {
   const orgId = profile.organisation_id;
 
   const [examsData, membersData, pagesData] = await Promise.all([
-    getAdminExams(orgId),
-    getOrgMembers(orgId),
-    getExamPages(orgId),
+    getAdminExams(supabase, orgId),
+    getOrgMembers(supabase, orgId),
+    getExamPages(supabase, orgId),
   ]);
 
   const teacherNames = new Map<string, string>();

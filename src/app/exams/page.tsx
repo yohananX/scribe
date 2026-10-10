@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -7,32 +7,29 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import type { Exam } from "@/types/database";
 
-const getTeacherExams = unstable_cache(
-  async (teacherId: string) => {
-    const supabase = await createClient();
+const getTeacherExams = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, teacherId: string) => {
     const { data } = await supabase
       .from("exams")
       .select("id, title_block, status, created_at")
       .eq("teacher_id", teacherId)
       .order("created_at", { ascending: false });
     return (data ?? []) as Partial<Exam>[];
-  },
-  ["teacher-exams"],
-  { tags: ["exams"], revalidate: 60 }
+  }
 );
 
 export default async function ExamsPage() {
   const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session?.user) {
+  if (!user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, session.user.id);
+  const profile = await getProfile(supabase, user.id);
   if (!profile?.organisation_id) redirect("/onboarding");
 
-  const exams = await getTeacherExams(session.user.id);
+  const exams = await getTeacherExams(supabase, user.id);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">

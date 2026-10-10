@@ -1,44 +1,38 @@
 import { redirect } from "next/navigation";
-import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { TemplateEditor } from "@/components/template/TemplateEditor";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/profile";
 import { normalizeTemplateConfig, type TemplateConfig } from "@/lib/template";
 
-const getOrgName = unstable_cache(
-  async (orgId: string) => {
-    const supabase = await createClient();
+const getOrgName = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, orgId: string) => {
     const { data } = await supabase.from("organisations").select("name").eq("id", orgId).single();
     return data?.name ?? "";
-  },
-  ["org-name"],
-  { tags: ["organisation"], revalidate: 300 }
+  }
 );
 
-const getTemplateForOrg = unstable_cache(
-  async (orgId: string) => {
-    const supabase = await createClient();
+const getTemplateForOrg = cache(
+  async (supabase: Awaited<ReturnType<typeof createClient>>, orgId: string) => {
     const { data } = await supabase
       .from("templates")
       .select("config")
       .eq("organisation_id", orgId)
       .maybeSingle();
     return data;
-  },
-  ["org-template"],
-  { tags: ["templates"], revalidate: 300 }
+  }
 );
 
 export default async function TemplatePage() {
   const supabase = await createClient();
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session?.user) {
+  if (!user) {
     redirect("/login");
   }
 
-  const profile = await getProfile(supabase, session.user.id);
+  const profile = await getProfile(supabase, user.id);
 
   if (!profile?.organisation_id || profile.role !== "admin") {
     redirect("/dashboard");
@@ -47,8 +41,8 @@ export default async function TemplatePage() {
   const orgId = profile.organisation_id;
 
   const [orgName, template] = await Promise.all([
-    getOrgName(orgId),
-    getTemplateForOrg(orgId),
+    getOrgName(supabase, orgId),
+    getTemplateForOrg(supabase, orgId),
   ]);
 
   const config = normalizeTemplateConfig(template?.config);
